@@ -5,7 +5,7 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/
 const FAQS = [
   { q: "What file types can I upload?", a: "PDF, DOCX, PPT/PPTX and common image formats (PNG, JPG). Maximum file size is 20MB." },
   { q: "How fast is delivery?", a: "Standard delivery is within 6 hours. With urgent delivery, your order arrives in under 2 hours within partner campuses." },
-  { q: "How is the price calculated?", a: "B&W starts at ₹2/page, color at ₹8/page. Add-ons like spiral binding (₹30) and urgent delivery (₹50) are optional. The estimate updates live as you change options." },
+  { q: "How is the price calculated?", a: "B&W printing/Xerox is ₹1 per page, color printing/Xerox is ₹5 per page, spiral binding is ₹20 per document, standard delivery is ₹5, and express delivery adds ₹10. Standard delivery becomes free on order subtotals of ₹50 or more." },
   { q: "Where do you deliver?", a: "Currently on 50+ campuses across India including IITs, NITs, DU, VIT and major coaching institutes. Hostel, classroom and home delivery supported." },
   { q: "Is my document safe?", a: "Yes. Uploads are encrypted, accessible only to the assigned print partner, and securely deleted after 7 days." },
   { q: "Can I cancel an order?", a: "Yes, until the order moves to 'Printing in Progress'. After that, the order is locked to ensure on-time delivery." },

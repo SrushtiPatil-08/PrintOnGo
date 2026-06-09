@@ -53,7 +53,7 @@ function SummaryPage() {
             </Card>
             <Card icon={Settings2} title="Print options">
               <ul className="text-sm space-y-1 text-muted-foreground">
-                <li>{options.pages} pages · {options.copies} {options.copies > 1 ? "copies" : "copy"} · {options.size} · {options.color === "bw" ? "B&W" : "Color"} · {options.sided === "single" ? "Single-sided" : "Double-sided"}</li>
+                <li>{options.pages} pages · {options.copies} {options.copies > 1 ? "copies" : "copy"} · {options.size} · {breakdown.printType} · {options.sided === "single" ? "Single-sided" : "Double-sided"}</li>
                 {options.binding && <li>Spiral binding</li>}
                 {options.urgent && <li>Express delivery (under 2 hours)</li>}
               </ul>
@@ -79,11 +79,15 @@ function SummaryPage() {
               <div className="mt-5 space-y-2 text-sm">
                 <Row k="Pages" v={String(options.pages)} />
                 <Row k="Copies" v={String(options.copies)} />
-                <Row k="Print type" v={options.color === "bw" ? "B&W Printing" : "Color Printing"} />
+                <Row k="Print type" v={breakdown.printType} />
                 <Row k="Print cost" v={`₹${breakdown.printCost}`} />
                 <Row k="Spiral binding" v={options.binding ? `₹${breakdown.bindingCost}` : "—"} />
                 <Row k="Delivery fee" v={breakdown.freeDelivery ? <span className="text-success font-semibold">FREE</span> : `₹${breakdown.deliveryFee}`} />
-                {options.urgent && <Row k="Express delivery" v={`₹${breakdown.expressFee}`} />}
+                <Row k="Express delivery" v={options.urgent ? `₹${breakdown.expressFee}` : "—"} />
+                <div className="border-t border-border pt-2 mt-2 flex justify-between">
+                  <span className="text-muted-foreground">Total Amount</span>
+                  <span className="font-bold text-primary">₹{total}</span>
+                </div>
               </div>
               {breakdown.freeDelivery && (
                 <div className="mt-3 text-sm text-success font-medium flex items-center gap-1.5">
