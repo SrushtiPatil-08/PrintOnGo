@@ -2,9 +2,9 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { SiteLayout } from "@/components/site-layout";
 import { Button } from "@/components/ui/button";
 import { useEffect, useState } from "react";
-import { calcCost, clearDraft, getDraft, placeOrder, type DeliveryDetails, type PrintOptions } from "@/lib/order-store";
+import { calcBreakdown, calcCost, clearDraft, getDraft, placeOrder, type DeliveryDetails, type PrintOptions } from "@/lib/order-store";
 import { Stepper } from "./order";
-import { FileText, MapPin, Settings2, CheckCircle2 } from "lucide-react";
+import { FileText, MapPin, Settings2, CheckCircle2, BadgeCheck } from "lucide-react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/summary")({
@@ -29,6 +29,7 @@ function SummaryPage() {
   }
 
   const { options, delivery } = data;
+  const breakdown = calcBreakdown(options);
   const total = calcCost(options);
 
   const place = () => {
@@ -52,9 +53,9 @@ function SummaryPage() {
             </Card>
             <Card icon={Settings2} title="Print options">
               <ul className="text-sm space-y-1 text-muted-foreground">
-                <li>{options.copies} {options.copies > 1 ? "copies" : "copy"} · {options.size} · {options.color === "bw" ? "B&W" : "Color"} · {options.sided === "single" ? "Single-sided" : "Double-sided"}</li>
+                <li>{options.pages} pages · {options.copies} {options.copies > 1 ? "copies" : "copy"} · {options.size} · {options.color === "bw" ? "B&W" : "Color"} · {options.sided === "single" ? "Single-sided" : "Double-sided"}</li>
                 {options.binding && <li>Spiral binding</li>}
-                {options.urgent && <li>Urgent delivery (under 2 hours)</li>}
+                {options.urgent && <li>Express delivery (under 2 hours)</li>}
               </ul>
             </Card>
             <Card icon={MapPin} title="Delivery">
@@ -68,8 +69,27 @@ function SummaryPage() {
           </div>
           <aside>
             <div className="card-elevated p-6 sticky top-24">
-              <div className="text-sm text-muted-foreground">Estimated total</div>
+              <div className="flex items-center justify-between mb-4">
+                <div className="text-sm text-muted-foreground">Estimated total</div>
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-success/10 text-success text-[10px] font-semibold uppercase tracking-wide">
+                  <BadgeCheck className="w-3 h-3" /> Student Pricing
+                </span>
+              </div>
               <div className="text-4xl font-bold text-primary mt-1">₹{total}</div>
+              <div className="mt-5 space-y-2 text-sm">
+                <Row k="Pages" v={String(options.pages)} />
+                <Row k="Copies" v={String(options.copies)} />
+                <Row k="Print type" v={options.color === "bw" ? "B&W Printing" : "Color Printing"} />
+                <Row k="Print cost" v={`₹${breakdown.printCost}`} />
+                <Row k="Spiral binding" v={options.binding ? `₹${breakdown.bindingCost}` : "—"} />
+                <Row k="Delivery fee" v={breakdown.freeDelivery ? <span className="text-success font-semibold">FREE</span> : `₹${breakdown.deliveryFee}`} />
+                {options.urgent && <Row k="Express delivery" v={`₹${breakdown.expressFee}`} />}
+              </div>
+              {breakdown.freeDelivery && (
+                <div className="mt-3 text-sm text-success font-medium flex items-center gap-1.5">
+                  <BadgeCheck className="w-4 h-4" /> You unlocked Free Delivery!
+                </div>
+              )}
               <Button className="btn-hero w-full mt-5 h-11" onClick={place}>
                 <CheckCircle2 className="w-4 h-4 mr-1" /> Place order
               </Button>
@@ -80,6 +100,10 @@ function SummaryPage() {
       </section>
     </SiteLayout>
   );
+}
+
+function Row({ k, v }: { k: string; v: React.ReactNode }) {
+  return <div className="flex justify-between"><span className="text-muted-foreground">{k}</span><span className="font-medium">{v}</span></div>;
 }
 
 function Card({ icon: Icon, title, children }: { icon: React.ComponentType<{ className?: string }>; title: string; children: React.ReactNode }) {
@@ -93,3 +117,4 @@ function Card({ icon: Icon, title, children }: { icon: React.ComponentType<{ cla
     </div>
   );
 }
+

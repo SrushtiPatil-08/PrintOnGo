@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { Printer, Menu, X } from "lucide-react";
+import { Printer, Menu, X, Package } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 
@@ -34,7 +34,10 @@ export function SiteLayout({ children }: { children: ReactNode }) {
               </Link>
             ))}
           </nav>
-          <div className="hidden md:block">
+          <div className="hidden md:flex items-center gap-3">
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-success/10 text-success text-[11px] font-semibold">
+              <Package className="w-3.5 h-3.5" /> Free Delivery Above ₹50
+            </span>
             <Button asChild className="btn-hero">
               <Link to="/order">Order Now</Link>
             </Button>
@@ -70,6 +73,9 @@ export function SiteLayout({ children }: { children: ReactNode }) {
               <span className="font-display font-bold text-xl">PrintOnGo</span>
             </div>
             <p className="text-sm text-muted-foreground max-w-sm">Upload. Print. Deliver. India's smartest student printing and document delivery platform.</p>
+            <div className="mt-3 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-success/10 text-success text-xs font-semibold">
+              <Package className="w-3.5 h-3.5" /> Free Standard Delivery on orders above ₹50
+            </div>
           </div>
           <div>
             <h4 className="font-semibold mb-3 text-sm">Product</h4>
@@ -98,3 +104,4 @@ export function SiteLayout({ children }: { children: ReactNode }) {
     </div>
   );
 }
+

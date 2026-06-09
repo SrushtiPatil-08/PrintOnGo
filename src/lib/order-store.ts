@@ -1,6 +1,7 @@
 // Simple client-side order store using sessionStorage + a static demo list
 export type PrintOptions = {
   fileName: string;
+  pages: number;
   copies: number;
   color: "bw" | "color";
   sided: "single" | "double";
@@ -36,16 +37,44 @@ export const STATUSES = [
 ] as const;
 export type OrderStatus = (typeof STATUSES)[number];
 
+export type CostBreakdown = {
+  pages: number;
+  copies: number;
+  printRate: number;
+  printCost: number;
+  bindingCost: number;
+  subtotal: number;
+  deliveryFee: number;
+  expressFee: number;
+  total: number;
+  freeDelivery: boolean;
+};
+
+export function calcBreakdown(o: PrintOptions): CostBreakdown {
+  const printRate = o.color === "color" ? 5 : 1;
+  const printCost = o.pages * o.copies * printRate;
+  const bindingCost = o.binding ? 20 : 0;
+  const subtotal = printCost + bindingCost;
+  const freeDelivery = subtotal >= 50;
+  const deliveryFee = freeDelivery ? 0 : 5;
+  const expressFee = o.urgent ? 10 : 0;
+  const total = subtotal + deliveryFee + expressFee;
+  return {
+    pages: o.pages,
+    copies: o.copies,
+    printRate,
+    printCost,
+    bindingCost,
+    subtotal,
+    deliveryFee,
+    expressFee,
+    total,
+    freeDelivery,
+  };
+}
+
 export function calcCost(o: PrintOptions): number {
-  const perPage = o.color === "color" ? 8 : 2;
-  const sizeMul = o.size === "A3" ? 1.6 : 1;
-  const sidedMul = o.sided === "double" ? 0.9 : 1;
-  // Assume 10 pages average per doc for estimate
-  const pages = 10;
-  let cost = perPage * pages * sizeMul * sidedMul * o.copies;
-  if (o.binding) cost += 30;
-  if (o.urgent) cost += 50;
-  return Math.round(cost);
+  return calcBreakdown(o).total;
 }
 
 const KEY = "printongo:current";
@@ -81,21 +110,21 @@ export function placeOrder(options: PrintOptions, delivery: DeliveryDetails): Or
 const DEMO: Order[] = [
   {
     id: "PG100234", createdAt: new Date().toISOString(),
-    options: { fileName: "DBMS_Assignment.pdf", copies: 2, color: "bw", sided: "double", size: "A4", binding: true, urgent: false },
+    options: { fileName: "DBMS_Assignment.pdf", pages: 20, copies: 2, color: "bw", sided: "double", size: "A4", binding: true, urgent: false },
     delivery: { fullName: "Aarav Sharma", institute: "IIT Delhi", department: "CSE", phone: "9876543210", address: "Hostel 5, Room 214", time: "Evening" },
-    total: 86, status: "Out for Delivery",
+    total: 60, status: "Out for Delivery",
   },
   {
     id: "PG100235", createdAt: new Date().toISOString(),
-    options: { fileName: "Project_Report.docx", copies: 1, color: "color", sided: "single", size: "A4", binding: true, urgent: true },
+    options: { fileName: "Project_Report.docx", pages: 25, copies: 1, color: "color", sided: "single", size: "A4", binding: true, urgent: true },
     delivery: { fullName: "Priya Verma", institute: "DU North Campus", department: "Economics", phone: "9123456780", address: "Kamla Nehru Hostel", time: "Morning" },
-    total: 160, status: "Printing in Progress",
+    total: 155, status: "Printing in Progress",
   },
   {
     id: "PG100236", createdAt: new Date().toISOString(),
-    options: { fileName: "Notes_Unit3.pdf", copies: 5, color: "bw", sided: "double", size: "A4", binding: false, urgent: false },
+    options: { fileName: "Notes_Unit3.pdf", pages: 15, copies: 5, color: "bw", sided: "double", size: "A4", binding: false, urgent: false },
     delivery: { fullName: "Rahul Singh", institute: "NIT Trichy", department: "Mechanical", phone: "9988776655", address: "Garnet Hostel, Block A", time: "Afternoon" },
-    total: 90, status: "Delivered",
+    total: 75, status: "Delivered",
   },
 ];
 
