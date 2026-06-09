@@ -6,8 +6,8 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { useEffect, useState } from "react";
-import { Upload, FileText } from "lucide-react";
-import { calcCost, getDraft, saveDraft, type PrintOptions } from "@/lib/order-store";
+import { Upload, FileText, BadgeCheck } from "lucide-react";
+import { calcBreakdown, calcCost, getDraft, saveDraft, type PrintOptions } from "@/lib/order-store";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/order")({
@@ -18,7 +18,7 @@ export const Route = createFileRoute("/order")({
 function OrderPage() {
   const navigate = useNavigate();
   const [opts, setOpts] = useState<PrintOptions>({
-    fileName: "", copies: 1, color: "bw", sided: "single", size: "A4", binding: false, urgent: false,
+    fileName: "", pages: 10, copies: 1, color: "bw", sided: "single", size: "A4", binding: false, urgent: false,
   });
 
   useEffect(() => {
@@ -26,7 +26,7 @@ function OrderPage() {
     if (d.options) setOpts(d.options);
   }, []);
 
-  const cost = calcCost(opts);
+  const breakdown = calcBreakdown(opts);
   const update = <K extends keyof PrintOptions>(k: K, v: PrintOptions[K]) => setOpts(p => ({ ...p, [k]: v }));
 
   const onFile = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -72,10 +72,18 @@ function OrderPage() {
 
               <div className="grid sm:grid-cols-2 gap-4">
                 <div>
+                  <Label className="mb-2 block text-sm">Number of pages</Label>
+                  <Input type="number" min={1} max={1000} value={opts.pages}
+                    onChange={(e) => update("pages", Math.max(1, parseInt(e.target.value) || 1))} />
+                </div>
+                <div>
                   <Label className="mb-2 block text-sm">Number of copies</Label>
                   <Input type="number" min={1} max={500} value={opts.copies}
                     onChange={(e) => update("copies", Math.max(1, parseInt(e.target.value) || 1))} />
                 </div>
+              </div>
+
+              <div className="grid sm:grid-cols-2 gap-4">
                 <div>
                   <Label className="mb-2 block text-sm">Paper size</Label>
                   <RadioGroup value={opts.size} onValueChange={(v) => update("size", v as "A4" | "A3")} className="flex gap-2">
@@ -86,9 +94,6 @@ function OrderPage() {
                     ))}
                   </RadioGroup>
                 </div>
-              </div>
-
-              <div className="grid sm:grid-cols-2 gap-4">
                 <div>
                   <Label className="mb-2 block text-sm">Color</Label>
                   <RadioGroup value={opts.color} onValueChange={(v) => update("color", v as "bw" | "color")} className="flex gap-2">
@@ -99,6 +104,9 @@ function OrderPage() {
                     ))}
                   </RadioGroup>
                 </div>
+              </div>
+
+              <div className="grid sm:grid-cols-2 gap-4">
                 <div>
                   <Label className="mb-2 block text-sm">Sides</Label>
                   <RadioGroup value={opts.sided} onValueChange={(v) => update("sided", v as "single" | "double")} className="flex gap-2">
@@ -109,12 +117,17 @@ function OrderPage() {
                     ))}
                   </RadioGroup>
                 </div>
+                <div className="flex items-end">
+                  <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-success/10 text-success text-xs font-semibold">
+                    <BadgeCheck className="w-3.5 h-3.5" /> Affordable Student Pricing
+                  </div>
+                </div>
               </div>
 
               <div className="space-y-3 pt-2 border-t border-border">
-                <ToggleRow label="Spiral binding" desc="Adds ₹30 — great for reports & projects."
+                <ToggleRow label="Spiral binding" desc="Adds ₹20 — great for reports & projects."
                   checked={opts.binding} onChange={(v) => update("binding", v)} />
-                <ToggleRow label="Urgent delivery" desc="Adds ₹50 — delivered in under 2 hours."
+                <ToggleRow label="Express delivery" desc="Additional ₹10 — delivered in under 2 hours."
                   checked={opts.urgent} onChange={(v) => update("urgent", v)} />
               </div>
             </div>
@@ -122,20 +135,31 @@ function OrderPage() {
 
           <aside className="lg:col-span-1">
             <div className="card-elevated p-6 sticky top-24">
-              <h3 className="font-semibold mb-4">Estimated cost</h3>
-              <div className="space-y-2 text-sm">
-                <Row k="Copies" v={String(opts.copies)} />
-                <Row k="Color" v={opts.color === "bw" ? "B&W" : "Color"} />
-                <Row k="Sides" v={opts.sided === "single" ? "Single" : "Double"} />
-                <Row k="Size" v={opts.size} />
-                <Row k="Binding" v={opts.binding ? "+₹30" : "—"} />
-                <Row k="Urgent" v={opts.urgent ? "+₹50" : "—"} />
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="font-semibold">Estimated cost</h3>
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-success/10 text-success text-[10px] font-semibold uppercase tracking-wide">
+                  <BadgeCheck className="w-3 h-3" /> Student Pricing
+                </span>
               </div>
+              <div className="space-y-2 text-sm">
+                <Row k="Pages" v={String(opts.pages)} />
+                <Row k="Copies" v={String(opts.copies)} />
+                <Row k="Print type" v={opts.color === "bw" ? "B&W Printing" : "Color Printing"} />
+                <Row k="Print cost" v={`₹${breakdown.printCost}`} />
+                <Row k="Spiral binding" v={opts.binding ? `₹${breakdown.bindingCost}` : "—"} />
+                <Row k="Delivery fee" v={breakdown.freeDelivery ? <span className="text-success font-semibold">FREE</span> : `₹${breakdown.deliveryFee}`} />
+                {opts.urgent && <Row k="Express delivery" v={`₹${breakdown.expressFee}`} />}
+              </div>
+              {breakdown.freeDelivery && (
+                <div className="mt-3 text-sm text-success font-medium flex items-center gap-1.5">
+                  <BadgeCheck className="w-4 h-4" /> You unlocked Free Delivery!
+                </div>
+              )}
               <div className="border-t border-border mt-4 pt-4 flex justify-between items-baseline">
                 <span className="text-sm text-muted-foreground">Total</span>
-                <span className="text-3xl font-bold text-primary">₹{cost}</span>
+                <span className="text-3xl font-bold text-primary">₹{breakdown.total}</span>
               </div>
-              <p className="text-xs text-muted-foreground mt-2">*Estimate based on ~10 pages. Final cost depends on actual page count.</p>
+              <p className="text-xs text-muted-foreground mt-2">*Free Standard Delivery on orders above ₹50. Express adds ₹10.</p>
               <Button className="btn-hero w-full mt-5 h-11" onClick={onContinue}>Continue to delivery</Button>
             </div>
           </aside>
@@ -145,7 +169,7 @@ function OrderPage() {
   );
 }
 
-function Row({ k, v }: { k: string; v: string }) {
+function Row({ k, v }: { k: string; v: React.ReactNode }) {
   return <div className="flex justify-between"><span className="text-muted-foreground">{k}</span><span className="font-medium">{v}</span></div>;
 }
 
@@ -180,3 +204,4 @@ export function Stepper({ step }: { step: 1 | 2 | 3 }) {
     </ol>
   );
 }
+
