@@ -7,7 +7,7 @@ import { Switch } from "@/components/ui/switch";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { useEffect, useState } from "react";
 import { Upload, FileText, BadgeCheck } from "lucide-react";
-import { calcBreakdown, getDraft, saveDraft, type PrintOptions } from "@/lib/order-store";
+import { calcBreakdown, calcCost, getDraft, saveDraft, type PrintOptions } from "@/lib/order-store";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/order")({
@@ -18,7 +18,7 @@ export const Route = createFileRoute("/order")({
 function OrderPage() {
   const navigate = useNavigate();
   const [opts, setOpts] = useState<PrintOptions>({
-    fileName: "", service: "printing", pages: 10, copies: 1, color: "bw", sided: "single", size: "A4", binding: false, urgent: false,
+    fileName: "", pages: 10, copies: 1, color: "bw", sided: "single", size: "A4", binding: false, urgent: false,
   });
 
   useEffect(() => {
@@ -80,16 +80,6 @@ function OrderPage() {
                   <Label className="mb-2 block text-sm">Number of copies</Label>
                   <Input type="number" min={1} max={500} value={opts.copies}
                     onChange={(e) => update("copies", Math.max(1, parseInt(e.target.value) || 1))} />
-                </div>
-                <div>
-                  <Label className="mb-2 block text-sm">Service type</Label>
-                  <RadioGroup value={opts.service ?? "printing"} onValueChange={(v) => update("service", v as "printing" | "xerox")} className="flex gap-2">
-                    {[{ k: "printing", l: "Printing" }, { k: "xerox", l: "Xerox" }].map(o => (
-                      <label key={o.k} className={`flex-1 border rounded-lg px-4 py-2.5 cursor-pointer text-center text-sm font-medium transition ${(opts.service ?? "printing") === o.k ? "border-primary bg-primary/5" : "border-border"}`}>
-                        <RadioGroupItem value={o.k} className="sr-only" /> {o.l}
-                      </label>
-                    ))}
-                  </RadioGroup>
                 </div>
               </div>
 
@@ -154,11 +144,11 @@ function OrderPage() {
               <div className="space-y-2 text-sm">
                 <Row k="Pages" v={String(opts.pages)} />
                 <Row k="Copies" v={String(opts.copies)} />
-                <Row k="Print type" v={breakdown.printType} />
+                <Row k="Print type" v={opts.color === "bw" ? "B&W Printing" : "Color Printing"} />
                 <Row k="Print cost" v={`₹${breakdown.printCost}`} />
                 <Row k="Spiral binding" v={opts.binding ? `₹${breakdown.bindingCost}` : "—"} />
                 <Row k="Delivery fee" v={breakdown.freeDelivery ? <span className="text-success font-semibold">FREE</span> : `₹${breakdown.deliveryFee}`} />
-                <Row k="Express delivery" v={opts.urgent ? `₹${breakdown.expressFee}` : "—"} />
+                {opts.urgent && <Row k="Express delivery" v={`₹${breakdown.expressFee}`} />}
               </div>
               {breakdown.freeDelivery && (
                 <div className="mt-3 text-sm text-success font-medium flex items-center gap-1.5">
@@ -166,7 +156,7 @@ function OrderPage() {
                 </div>
               )}
               <div className="border-t border-border mt-4 pt-4 flex justify-between items-baseline">
-                <span className="text-sm text-muted-foreground">Total Amount</span>
+                <span className="text-sm text-muted-foreground">Total</span>
                 <span className="text-3xl font-bold text-primary">₹{breakdown.total}</span>
               </div>
               <p className="text-xs text-muted-foreground mt-2">*Free Standard Delivery on orders above ₹50. Express adds ₹10.</p>
