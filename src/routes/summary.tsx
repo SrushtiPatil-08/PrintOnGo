@@ -83,7 +83,7 @@ function SummaryPage() {
                 <Row k="Print cost" v={`₹${breakdown.printCost}`} />
                 <Row k="Spiral binding" v={options.binding ? `₹${breakdown.bindingCost}` : "—"} />
                 <Row k="Delivery fee" v={breakdown.freeDelivery ? <span className="text-success font-semibold">FREE</span> : `₹${breakdown.deliveryFee}`} />
-                {options.urgent && <Row k="Express delivery" v={`₹${breakdown.expressFee}`} />}
+                <Row k="Express delivery" v={options.urgent ? `₹${breakdown.expressFee}` : "—"} />
                 <div className="border-t border-border pt-2 mt-2 flex justify-between">
                   <span className="text-muted-foreground">Total Amount</span>
                   <span className="font-bold text-primary">₹{total}</span>

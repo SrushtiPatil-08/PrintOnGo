@@ -158,7 +158,7 @@ function OrderPage() {
                 <Row k="Print cost" v={`₹${breakdown.printCost}`} />
                 <Row k="Spiral binding" v={opts.binding ? `₹${breakdown.bindingCost}` : "—"} />
                 <Row k="Delivery fee" v={breakdown.freeDelivery ? <span className="text-success font-semibold">FREE</span> : `₹${breakdown.deliveryFee}`} />
-                {opts.urgent && <Row k="Express delivery" v={`₹${breakdown.expressFee}`} />}
+                <Row k="Express delivery" v={opts.urgent ? `₹${breakdown.expressFee}` : "—"} />
               </div>
               {breakdown.freeDelivery && (
                 <div className="mt-3 text-sm text-success font-medium flex items-center gap-1.5">
@@ -166,7 +166,7 @@ function OrderPage() {
                 </div>
               )}
               <div className="border-t border-border mt-4 pt-4 flex justify-between items-baseline">
-                <span className="text-sm text-muted-foreground">Total</span>
+                <span className="text-sm text-muted-foreground">Total Amount</span>
                 <span className="text-3xl font-bold text-primary">₹{breakdown.total}</span>
               </div>
               <p className="text-xs text-muted-foreground mt-2">*Free Standard Delivery on orders above ₹50. Express adds ₹10.</p>
