@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { SiteLayout } from "@/components/site-layout";
 import { Button } from "@/components/ui/button";
-import { Upload, Settings2, Truck, Clock, Wallet, Sparkles, ShieldCheck, ArrowRight, Quote, Star } from "lucide-react";
+import { Upload, Settings2, Truck, Clock, Wallet, Sparkles, ShieldCheck, ArrowRight, Quote, Star, BadgeCheck, Package } from "lucide-react";
 import heroImg from "@/assets/hero.jpg";
 
 export const Route = createFileRoute("/")({
@@ -22,8 +22,13 @@ function Home() {
         <div className="absolute top-20 -right-20 w-96 h-96 rounded-full blur-3xl opacity-30" style={{ background: "var(--gradient-primary)" }} />
         <div className="container mx-auto px-4 max-w-7xl py-20 md:py-28 grid lg:grid-cols-2 gap-12 items-center">
           <div className="animate-fade-in">
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-accent text-accent-foreground text-xs font-medium mb-6">
-              <Sparkles className="w-3.5 h-3.5" /> Built for students. Loved by 10,000+
+            <div className="flex flex-wrap items-center gap-2 mb-6">
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-accent text-accent-foreground text-xs font-medium">
+                <Sparkles className="w-3.5 h-3.5" /> Built for students. Loved by 10,000+
+              </div>
+              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-success/10 text-success text-xs font-semibold">
+                <BadgeCheck className="w-3.5 h-3.5" /> Affordable Student Pricing
+              </div>
             </div>
             <h1 className="text-5xl md:text-6xl lg:text-7xl font-bold leading-[1.05] mb-6">
               Upload. Print.{" "}
@@ -58,7 +63,7 @@ function Home() {
             { v: "10K+", l: "Happy students" },
             { v: "50+", l: "Campuses served" },
             { v: "2 hrs", l: "Avg delivery" },
-            { v: "₹2", l: "Per page from" },
+            { v: "₹1", l: "Per page from" },
           ].map((s) => (
             <div key={s.l} className="card-elevated p-6 text-center">
               <div className="text-3xl font-display font-bold text-primary">{s.v}</div>
@@ -98,7 +103,7 @@ function Home() {
             {[
               { i: Clock, t: "No queues", d: "Skip the wait at the print shop." },
               { i: Truck, t: "Fast delivery", d: "From 2 hours, right to your door." },
-              { i: Wallet, t: "Affordable", d: "Pay from ₹2/page with bulk discounts." },
+              { i: Wallet, t: "Affordable", d: "Pay from ₹1/page with bulk discounts." },
               { i: ShieldCheck, t: "Easy ordering", d: "From upload to delivery in 3 taps." },
             ].map(b => (
               <div key={b.t} className="bg-white/10 backdrop-blur p-5 rounded-2xl border border-white/15">
@@ -143,11 +148,17 @@ function Home() {
         <div className="card-elevated p-12 text-center">
           <h2 className="text-4xl font-bold mb-3">Ready to print smarter?</h2>
           <p className="text-muted-foreground mb-6">Place your first order in under a minute.</p>
-          <Button asChild size="lg" className="btn-hero h-12 px-8">
-            <Link to="/order">Start your order <ArrowRight className="ml-1 w-4 h-4" /></Link>
-          </Button>
+          <div className="flex flex-wrap items-center justify-center gap-3">
+            <Button asChild size="lg" className="btn-hero h-12 px-8">
+              <Link to="/order">Start your order <ArrowRight className="ml-1 w-4 h-4" /></Link>
+            </Button>
+            <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-success/10 text-success text-sm font-semibold">
+              <Package className="w-4 h-4" /> Free Delivery Above ₹50
+            </div>
+          </div>
         </div>
       </section>
     </SiteLayout>
   );
 }
+
