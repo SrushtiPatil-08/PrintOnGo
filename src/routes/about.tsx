@@ -25,7 +25,7 @@ function AboutPage() {
           {[
             { i: Target, t: "Student-first", d: "Built around real student workflows and deadlines." },
             { i: Rocket, t: "Fast by design", d: "Two-hour delivery from upload to doorstep." },
-            { i: Heart, t: "Honest pricing", d: "Transparent rates from ₹2/page. Bulk discounts." },
+            { i: Heart, t: "Honest pricing", d: "Transparent rates from ₹1/page with free delivery above ₹50." },
           ].map(v => (
             <div key={v.t} className="card-elevated p-6">
               <v.i className="w-6 h-6 text-primary mb-3" />
