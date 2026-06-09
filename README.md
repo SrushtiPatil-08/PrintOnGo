@@ -111,5 +111,3 @@ PrintOnGo aims to become a one-stop solution for on-demand printing and delivery
 ## Author
 
 Srushti Patil
-
-Developed as part of the PrintOnGo startup MVP.
