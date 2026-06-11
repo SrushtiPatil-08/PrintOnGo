@@ -3,7 +3,7 @@ import { SiteLayout } from "@/components/site-layout";
 import { Input } from "@/components/ui/input";
 import { useEffect, useMemo, useState } from "react";
 import { getOrders, STATUSES, updateOrderStatus, type Order, type OrderStatus } from "@/lib/order-store";
-import { Search, Package, IndianRupee, TrendingUp } from "lucide-react";
+import { Search, Package, IndianRupee, TrendingUp, ShieldCheck } from "lucide-react";
 
 export const Route = createFileRoute("/admin")({
   head: () => ({ meta: [{ title: "Admin dashboard — PrintOnGo" }] }),
@@ -39,7 +39,7 @@ function AdminPage() {
     <SiteLayout>
       <section className="container mx-auto px-4 max-w-7xl py-10">
         <h1 className="text-4xl font-bold mb-1">Admin dashboard</h1>
-        <p className="text-muted-foreground mb-8">Demo view — manage incoming print orders.</p>
+        <p className="text-muted-foreground mb-6">Demo view — manage incoming print orders. Files are auto-deleted after delivery and cannot be downloaded.</p>
 
         <div className="grid sm:grid-cols-3 gap-4 mb-8">
           <Stat icon={Package} label="Total orders" value={orders.length.toString()} />
@@ -53,12 +53,14 @@ function AdminPage() {
             <Input value={q} onChange={e => setQ(e.target.value)} placeholder="Search by ID, name, institute or file…" className="border-0 shadow-none focus-visible:ring-0 px-0" />
           </div>
           <div className="overflow-x-auto -mx-2">
-            <table className="w-full text-sm min-w-[800px]">
+            <table className="w-full text-sm min-w-[960px]">
               <thead>
                 <tr className="text-left text-muted-foreground border-b border-border">
                   <th className="px-2 py-3 font-medium">Order ID</th>
                   <th className="px-2 py-3 font-medium">Customer</th>
-                  <th className="px-2 py-3 font-medium">File</th>
+                  <th className="px-2 py-3 font-medium">Location · ETA</th>
+                  <th className="px-2 py-3 font-medium">Pages</th>
+                  <th className="px-2 py-3 font-medium">Finish</th>
                   <th className="px-2 py-3 font-medium">Total</th>
                   <th className="px-2 py-3 font-medium">Status</th>
                 </tr>
@@ -71,7 +73,21 @@ function AdminPage() {
                       <div className="font-medium">{o.delivery.fullName}</div>
                       <div className="text-xs text-muted-foreground">{o.delivery.institute}</div>
                     </td>
-                    <td className="px-2 py-3 max-w-[200px] truncate">{o.options.fileName}</td>
+                    <td className="px-2 py-3 text-xs">
+                      {o.delivery.location ? (
+                        <>
+                          <div>{o.delivery.location.label}</div>
+                          <div className="text-muted-foreground">{o.delivery.location.distanceKm} km · ~{o.delivery.location.etaMin} mins</div>
+                        </>
+                      ) : <span className="text-muted-foreground">—</span>}
+                    </td>
+                    <td className="px-2 py-3">
+                      <div>{o.options.pages} × {o.options.copies}</div>
+                      <div className="text-xs text-muted-foreground">{o.options.color === "bw" ? "B&W" : "Color"}</div>
+                    </td>
+                    <td className="px-2 py-3 text-xs capitalize">
+                      {o.options.finishing === "none" ? "—" : o.options.finishing}
+                    </td>
                     <td className="px-2 py-3 font-semibold">₹{o.total}</td>
                     <td className="px-2 py-3">
                       <select value={o.status} onChange={e => setStatus(o.id, e.target.value as OrderStatus)}
@@ -82,10 +98,13 @@ function AdminPage() {
                   </tr>
                 ))}
                 {filtered.length === 0 && (
-                  <tr><td colSpan={5} className="text-center py-8 text-muted-foreground">No orders match.</td></tr>
+                  <tr><td colSpan={7} className="text-center py-8 text-muted-foreground">No orders match.</td></tr>
                 )}
               </tbody>
             </table>
+          </div>
+          <div className="mt-4 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-success/10 text-success text-xs font-semibold">
+            <ShieldCheck className="w-3.5 h-3.5" /> Customer files are encrypted & auto-deleted after delivery
           </div>
         </div>
       </section>

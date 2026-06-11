@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useEffect, useState } from "react";
 import { getOrder, STATUSES, type Order } from "@/lib/order-store";
-import { Check, Package, Search } from "lucide-react";
+import { Check, Package, Search, Clock, MapPin } from "lucide-react";
 import { z } from "zod";
 
 const searchSchema = z.object({ id: z.string().optional() });
@@ -38,7 +38,7 @@ function TrackPage() {
     <SiteLayout>
       <section className="container mx-auto px-4 max-w-3xl py-12">
         <h1 className="text-4xl font-bold mb-2">Track your order</h1>
-        <p className="text-muted-foreground mb-6">Enter your order ID to see live status. Try <span className="font-mono font-semibold">PG100234</span>.</p>
+        <p className="text-muted-foreground mb-6">Live progress updates. Try <span className="font-mono font-semibold">PG100234</span>.</p>
 
         <form onSubmit={onSearch} className="flex gap-2 mb-8">
           <Input value={query} onChange={e => setQuery(e.target.value)} placeholder="e.g. PG100234" className="h-11" />
@@ -62,6 +62,7 @@ function TrackPage() {
 function OrderTimeline({ order }: { order: Order }) {
   const currentIdx = STATUSES.indexOf(order.status);
   const progress = ((currentIdx + 1) / STATUSES.length) * 100;
+  const loc = order.delivery.location;
   return (
     <div className="card-elevated p-6 md:p-8">
       <div className="flex flex-wrap justify-between items-start gap-4 mb-6">
@@ -75,6 +76,19 @@ function OrderTimeline({ order }: { order: Order }) {
           <div className="text-2xl font-bold text-primary">₹{order.total}</div>
         </div>
       </div>
+
+      {loc && (
+        <div className="grid sm:grid-cols-2 gap-3 mb-6">
+          <div className="rounded-lg border border-border bg-[hsl(210_40%_98%)] p-3">
+            <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground"><Clock className="w-3.5 h-3.5 text-primary" /> Estimated arrival</div>
+            <div className="text-base font-semibold mt-0.5 text-primary">~ {loc.etaMin} mins*</div>
+          </div>
+          <div className="rounded-lg border border-border bg-[hsl(210_40%_98%)] p-3">
+            <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground"><MapPin className="w-3.5 h-3.5 text-primary" /> Distance</div>
+            <div className="text-base font-semibold mt-0.5">{loc.distanceKm} km · {loc.label}</div>
+          </div>
+        </div>
+      )}
 
       <div className="h-2 rounded-full bg-secondary overflow-hidden mb-6">
         <div className="h-full transition-all duration-700" style={{ width: `${progress}%`, background: "var(--gradient-primary)" }} />
@@ -102,6 +116,7 @@ function OrderTimeline({ order }: { order: Order }) {
       <div className="border-t border-border mt-6 pt-4 text-sm text-muted-foreground">
         Delivering to <span className="text-foreground font-medium">{order.delivery.fullName}</span> · {order.delivery.institute}
       </div>
+      <p className="text-[11px] text-muted-foreground mt-2">*Delivery times vary based on customer location, traffic, print partner availability & order volume.</p>
     </div>
   );
 }
