@@ -6,8 +6,13 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { useEffect, useState } from "react";
-import { Upload, FileText, BadgeCheck } from "lucide-react";
-import { calcBreakdown, calcCost, getDraft, saveDraft, type PrintOptions } from "@/lib/order-store";
+import {
+  Upload, FileText, BadgeCheck, ShieldCheck, Lock, MapPin, Loader2, Navigation, Clock,
+} from "lucide-react";
+import {
+  calcBreakdown, getDraft, saveDraft, type PrintOptions, type LocationInfo,
+  detectPageCount, haversineKm, estimateFromDistance, PARTNER_COORDS, bindingCostFor,
+} from "@/lib/order-store";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/order")({
@@ -18,28 +23,75 @@ export const Route = createFileRoute("/order")({
 function OrderPage() {
   const navigate = useNavigate();
   const [opts, setOpts] = useState<PrintOptions>({
-    fileName: "", pages: 10, copies: 1, color: "bw", sided: "single", size: "A4", binding: false, urgent: false,
+    fileName: "", pages: 1, copies: 1, color: "bw", sided: "single", size: "A4",
+    finishing: "none", urgent: false, autoDetectedPages: false,
   });
+  const [location, setLocation] = useState<LocationInfo | undefined>(undefined);
+  const [locating, setLocating] = useState(false);
+  const [manualAddress, setManualAddress] = useState("");
 
   useEffect(() => {
     const d = getDraft();
     if (d.options) setOpts(d.options);
+    if (d.delivery?.location) setLocation(d.delivery.location);
   }, []);
 
-  const breakdown = calcBreakdown(opts);
+  const breakdown = calcBreakdown(opts, location);
   const update = <K extends keyof PrintOptions>(k: K, v: PrintOptions[K]) => setOpts(p => ({ ...p, [k]: v }));
 
-  const onFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const onFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
     if (!f) return;
     if (f.size > 20 * 1024 * 1024) { toast.error("File too large (max 20MB)"); return; }
     update("fileName", f.name);
-    toast.success(`Uploaded ${f.name}`);
+    toast.success(`Securely uploaded ${f.name}`);
+    const pages = await detectPageCount(f);
+    if (pages) {
+      setOpts(p => ({ ...p, fileName: f.name, pages, autoDetectedPages: true }));
+      toast.success(`Detected ${pages} pages automatically`);
+    } else {
+      setOpts(p => ({ ...p, fileName: f.name, autoDetectedPages: false }));
+    }
+  };
+
+  const detectLocation = () => {
+    if (!("geolocation" in navigator)) { toast.error("Geolocation not supported"); return; }
+    setLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const lat = pos.coords.latitude, lng = pos.coords.longitude;
+        const distanceKm = haversineKm({ lat, lng }, PARTNER_COORDS);
+        const est = estimateFromDistance(distanceKm);
+        const loc: LocationInfo = {
+          lat, lng,
+          label: `Detected · ${lat.toFixed(3)}, ${lng.toFixed(3)}`,
+          distanceKm: Math.round(distanceKm * 10) / 10,
+          etaMin: est.etaMin,
+          deliveryFee: est.deliveryFee,
+        };
+        setLocation(loc);
+        setLocating(false);
+        toast.success("Location detected");
+      },
+      () => { setLocating(false); toast.error("Could not detect location. Enter address manually."); },
+      { enableHighAccuracy: false, timeout: 10000 }
+    );
+  };
+
+  const useManual = () => {
+    const a = manualAddress.trim();
+    if (a.length < 5) { toast.error("Enter a more specific address"); return; }
+    // Simulated estimate (no geocoding) — assume ~2.5 km
+    const distanceKm = 2.5;
+    const est = estimateFromDistance(distanceKm);
+    setLocation({ label: a, distanceKm, etaMin: est.etaMin, deliveryFee: est.deliveryFee });
+    toast.success("Address saved");
   };
 
   const onContinue = () => {
     if (!opts.fileName) { toast.error("Please upload a document first"); return; }
-    saveDraft({ options: opts });
+    if (!location) { toast.error("Please set your delivery location"); return; }
+    saveDraft({ options: opts, delivery: { ...(getDraft().delivery ?? { fullName: "", institute: "", department: "", phone: "", address: "", time: "Anytime" }), location, address: location.label } });
     navigate({ to: "/delivery" });
   };
 
@@ -48,10 +100,11 @@ function OrderPage() {
       <section className="container mx-auto px-4 max-w-5xl py-12">
         <Stepper step={1} />
         <h1 className="text-4xl font-bold mt-6 mb-2">Place your order</h1>
-        <p className="text-muted-foreground mb-8">Upload your file and pick the print options.</p>
+        <p className="text-muted-foreground mb-8">Upload your file, pick options & set your delivery location.</p>
 
         <div className="grid lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2 space-y-6">
+            {/* 1. Upload */}
             <div className="card-elevated p-6">
               <Label className="text-base font-semibold mb-3 block">1. Upload document</Label>
               <label htmlFor="file" className="block border-2 border-dashed border-border rounded-xl p-8 text-center cursor-pointer hover:border-primary transition-colors bg-secondary/30">
@@ -61,20 +114,35 @@ function OrderPage() {
                 <input id="file" type="file" accept=".pdf,.doc,.docx,.ppt,.pptx,.png,.jpg,.jpeg" className="hidden" onChange={onFile} />
               </label>
               {opts.fileName && (
-                <div className="mt-3 flex items-center gap-2 text-sm text-muted-foreground">
-                  <FileText className="w-4 h-4" /> {opts.fileName}
+                <div className="mt-3 flex items-center justify-between text-sm">
+                  <div className="flex items-center gap-2 text-muted-foreground">
+                    <FileText className="w-4 h-4" /> {opts.fileName}
+                  </div>
+                  {opts.autoDetectedPages && (
+                    <span className="inline-flex items-center gap-1 text-xs text-success font-semibold">
+                      <BadgeCheck className="w-3.5 h-3.5" /> {opts.pages} pages auto-detected
+                    </span>
+                  )}
                 </div>
               )}
+              <div className="mt-4 flex flex-wrap gap-2 text-[11px]">
+                <Pill icon={ShieldCheck} text="End-to-End Encrypted Upload" />
+                <Pill icon={Lock} text="Secure Processing" />
+                <Pill icon={BadgeCheck} text="Auto-Deleted After Delivery" />
+              </div>
             </div>
 
+            {/* 2. Print options */}
             <div className="card-elevated p-6 space-y-6">
               <Label className="text-base font-semibold block">2. Print options</Label>
 
               <div className="grid sm:grid-cols-2 gap-4">
                 <div>
-                  <Label className="mb-2 block text-sm">Number of pages</Label>
+                  <Label className="mb-2 block text-sm">
+                    Number of pages {opts.autoDetectedPages && <span className="text-success text-[10px] font-semibold ml-1">AUTO</span>}
+                  </Label>
                   <Input type="number" min={1} max={1000} value={opts.pages}
-                    onChange={(e) => update("pages", Math.max(1, parseInt(e.target.value) || 1))} />
+                    onChange={(e) => setOpts(p => ({ ...p, pages: Math.max(1, parseInt(e.target.value) || 1), autoDetectedPages: false }))} />
                 </div>
                 <div>
                   <Label className="mb-2 block text-sm">Number of copies</Label>
@@ -95,9 +163,9 @@ function OrderPage() {
                   </RadioGroup>
                 </div>
                 <div>
-                  <Label className="mb-2 block text-sm">Color</Label>
+                  <Label className="mb-2 block text-sm">Color · ₹{opts.color === "color" ? 10 : 3}/page</Label>
                   <RadioGroup value={opts.color} onValueChange={(v) => update("color", v as "bw" | "color")} className="flex gap-2">
-                    {[{ k: "bw", l: "Black & White" }, { k: "color", l: "Color" }].map(o => (
+                    {[{ k: "bw", l: "B&W ₹3" }, { k: "color", l: "Color ₹10" }].map(o => (
                       <label key={o.k} className={`flex-1 border rounded-lg px-4 py-2.5 cursor-pointer text-center text-sm font-medium transition ${opts.color === o.k ? "border-primary bg-primary/5" : "border-border"}`}>
                         <RadioGroupItem value={o.k} className="sr-only" /> {o.l}
                       </label>
@@ -106,49 +174,112 @@ function OrderPage() {
                 </div>
               </div>
 
-              <div className="grid sm:grid-cols-2 gap-4">
-                <div>
-                  <Label className="mb-2 block text-sm">Sides</Label>
-                  <RadioGroup value={opts.sided} onValueChange={(v) => update("sided", v as "single" | "double")} className="flex gap-2">
-                    {[{ k: "single", l: "Single-sided" }, { k: "double", l: "Double-sided" }].map(o => (
-                      <label key={o.k} className={`flex-1 border rounded-lg px-4 py-2.5 cursor-pointer text-center text-sm font-medium transition ${opts.sided === o.k ? "border-primary bg-primary/5" : "border-border"}`}>
-                        <RadioGroupItem value={o.k} className="sr-only" /> {o.l}
-                      </label>
-                    ))}
-                  </RadioGroup>
-                </div>
-                <div className="flex items-end">
-                  <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-success/10 text-success text-xs font-semibold">
-                    <BadgeCheck className="w-3.5 h-3.5" /> Affordable Student Pricing
-                  </div>
+              <div>
+                <Label className="mb-2 block text-sm">Sides</Label>
+                <RadioGroup value={opts.sided} onValueChange={(v) => update("sided", v as "single" | "double")} className="flex gap-2 max-w-sm">
+                  {[{ k: "single", l: "Single-sided" }, { k: "double", l: "Double-sided" }].map(o => (
+                    <label key={o.k} className={`flex-1 border rounded-lg px-4 py-2.5 cursor-pointer text-center text-sm font-medium transition ${opts.sided === o.k ? "border-primary bg-primary/5" : "border-border"}`}>
+                      <RadioGroupItem value={o.k} className="sr-only" /> {o.l}
+                    </label>
+                  ))}
+                </RadioGroup>
+              </div>
+
+              <div>
+                <Label className="mb-2 block text-sm">Finishing</Label>
+                <div className="grid sm:grid-cols-3 gap-2">
+                  {[
+                    { k: "none", l: "None", sub: "Loose sheets" },
+                    { k: "staple", l: "Staple", sub: "FREE · Included" },
+                    { k: "bind", l: "Bind", sub: `₹${bindingCostFor(opts.pages)} for ${opts.pages}p` },
+                  ].map(o => (
+                    <button
+                      type="button"
+                      key={o.k}
+                      onClick={() => update("finishing", o.k as PrintOptions["finishing"])}
+                      className={`text-left border rounded-lg px-3 py-2.5 text-sm transition ${opts.finishing === o.k ? "border-primary bg-primary/5" : "border-border"}`}
+                    >
+                      <div className="font-medium">{o.l}</div>
+                      <div className="text-[11px] text-muted-foreground">{o.sub}</div>
+                    </button>
+                  ))}
                 </div>
               </div>
 
               <div className="space-y-3 pt-2 border-t border-border">
-                <ToggleRow label="Spiral binding" desc="Adds ₹20 — great for reports & projects."
-                  checked={opts.binding} onChange={(v) => update("binding", v)} />
-                <ToggleRow label="Express delivery" desc="Additional ₹10 — delivered in under 2 hours."
+                <ToggleRow label="Express delivery" desc="Additional ₹15 — prioritized printing & dispatch."
                   checked={opts.urgent} onChange={(v) => update("urgent", v)} />
               </div>
             </div>
+
+            {/* 3. Location */}
+            <div className="card-elevated p-6">
+              <div className="flex items-center justify-between mb-3">
+                <Label className="text-base font-semibold block">3. Delivery location</Label>
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/10 text-primary text-[10px] font-semibold uppercase">
+                  <Clock className="w-3 h-3" /> 10-min*
+                </span>
+              </div>
+              <p className="text-xs text-muted-foreground mb-4">
+                Estimated delivery time and fees are calculated dynamically based on your distance from the nearest print partner.
+              </p>
+              <div className="flex flex-wrap gap-2 mb-3">
+                <Button type="button" variant="outline" onClick={detectLocation} disabled={locating} className="h-10">
+                  {locating ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Navigation className="w-4 h-4 mr-2" />}
+                  Use Current Location
+                </Button>
+              </div>
+              <div className="flex gap-2">
+                <Input placeholder="Or enter address manually (hostel, college, area)…" value={manualAddress} onChange={e => setManualAddress(e.target.value)} maxLength={200} />
+                <Button type="button" onClick={useManual} variant="secondary">Set</Button>
+              </div>
+
+              {location && (
+                <div className="mt-4 grid sm:grid-cols-3 gap-3">
+                  <LocStat icon={MapPin} label="Distance from print partner" value={`${location.distanceKm} km`} />
+                  <LocStat icon={Clock} label="Estimated delivery time" value={`~ ${location.etaMin} mins`} />
+                  <LocStat icon={BadgeCheck} label="Delivery charges" value={breakdown.freeDelivery ? "FREE" : `₹${location.deliveryFee}`} success={breakdown.freeDelivery} />
+                  <div className="sm:col-span-3 rounded-lg overflow-hidden border border-border bg-secondary/30 h-36 flex items-center justify-center text-xs text-muted-foreground">
+                    {location.lat && location.lng ? (
+                      <iframe
+                        title="Location preview"
+                        className="w-full h-full"
+                        src={`https://www.openstreetmap.org/export/embed.html?bbox=${location.lng - 0.01},${location.lat - 0.01},${location.lng + 0.01},${location.lat + 0.01}&marker=${location.lat},${location.lng}`}
+                      />
+                    ) : (
+                      <div className="flex items-center gap-2"><MapPin className="w-4 h-4 text-primary" /> {location.label}</div>
+                    )}
+                  </div>
+                </div>
+              )}
+              <p className="mt-3 text-[11px] text-muted-foreground">
+                *Delivery times vary based on customer location, traffic, print partner availability & order volume.
+              </p>
+            </div>
           </div>
 
+          {/* SIDEBAR */}
           <aside className="lg:col-span-1">
             <div className="card-elevated p-6 sticky top-24">
               <div className="flex items-center justify-between mb-4">
-                <h3 className="font-semibold">Estimated cost</h3>
+                <h3 className="font-semibold">Live order summary</h3>
                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-success/10 text-success text-[10px] font-semibold uppercase tracking-wide">
-                  <BadgeCheck className="w-3 h-3" /> Student Pricing
+                  <BadgeCheck className="w-3 h-3" /> Student
                 </span>
               </div>
               <div className="space-y-2 text-sm">
-                <Row k="Pages" v={String(opts.pages)} />
+                <Row k="Total pages" v={String(opts.pages)} />
                 <Row k="Copies" v={String(opts.copies)} />
-                <Row k="Print type" v={opts.color === "bw" ? "B&W Printing" : "Color Printing"} />
+                <Row k="Print type" v={opts.color === "bw" ? `B&W · ₹${breakdown.printRate}/pg` : `Color · ₹${breakdown.printRate}/pg`} />
                 <Row k="Print cost" v={`₹${breakdown.printCost}`} />
-                <Row k="Spiral binding" v={opts.binding ? `₹${breakdown.bindingCost}` : "—"} />
-                <Row k="Delivery fee" v={breakdown.freeDelivery ? <span className="text-success font-semibold">FREE</span> : `₹${breakdown.deliveryFee}`} />
-                {opts.urgent && <Row k="Express delivery" v={`₹${breakdown.expressFee}`} />}
+                <Row k="Stapling" v={opts.finishing === "staple" ? <span className="text-success font-semibold">FREE</span> : "—"} />
+                <Row k="Binding" v={opts.finishing === "bind" ? `₹${breakdown.bindingCost}` : "—"} />
+                <Row
+                  k={location ? `Delivery (${location.distanceKm} km)` : "Delivery"}
+                  v={breakdown.freeDelivery ? <span className="text-success font-semibold">FREE</span> : `₹${breakdown.deliveryFee}`}
+                />
+                {opts.urgent && <Row k="Express" v={`₹${breakdown.expressFee}`} />}
+                {location && <Row k="ETA" v={<span className="text-primary font-semibold">~ {location.etaMin} mins</span>} />}
               </div>
               {breakdown.freeDelivery && (
                 <div className="mt-3 text-sm text-success font-medium flex items-center gap-1.5">
@@ -159,7 +290,7 @@ function OrderPage() {
                 <span className="text-sm text-muted-foreground">Total</span>
                 <span className="text-3xl font-bold text-primary">₹{breakdown.total}</span>
               </div>
-              <p className="text-xs text-muted-foreground mt-2">*Free Standard Delivery on orders above ₹50. Express adds ₹10.</p>
+              <p className="text-xs text-muted-foreground mt-2">B&W ₹3/pg · Color ₹10/pg · Stapling free · Free delivery above ₹199.</p>
               <Button className="btn-hero w-full mt-5 h-11" onClick={onContinue}>Continue to delivery</Button>
             </div>
           </aside>
@@ -185,8 +316,27 @@ function ToggleRow({ label, desc, checked, onChange }: { label: string; desc: st
   );
 }
 
+function Pill({ icon: Icon, text }: { icon: React.ComponentType<{ className?: string }>; text: string }) {
+  return (
+    <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-success/10 text-success font-semibold">
+      <Icon className="w-3 h-3" /> {text}
+    </span>
+  );
+}
+
+function LocStat({ icon: Icon, label, value, success }: { icon: React.ComponentType<{ className?: string }>; label: string; value: string; success?: boolean }) {
+  return (
+    <div className="rounded-lg border border-border bg-background p-3">
+      <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+        <Icon className="w-3.5 h-3.5 text-primary" /> {label}
+      </div>
+      <div className={`text-base font-semibold mt-0.5 ${success ? "text-success" : ""}`}>{value}</div>
+    </div>
+  );
+}
+
 export function Stepper({ step }: { step: 1 | 2 | 3 }) {
-  const steps = ["Print options", "Delivery details", "Order summary"];
+  const steps = ["Print & location", "Delivery details", "Order summary"];
   return (
     <ol className="flex items-center gap-2 text-sm flex-wrap">
       {steps.map((s, i) => {
@@ -204,4 +354,3 @@ export function Stepper({ step }: { step: 1 | 2 | 3 }) {
     </ol>
   );
 }
-

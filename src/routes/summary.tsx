@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { useEffect, useState } from "react";
 import { calcBreakdown, calcCost, clearDraft, getDraft, placeOrder, type DeliveryDetails, type PrintOptions } from "@/lib/order-store";
 import { Stepper } from "./order";
-import { FileText, MapPin, Settings2, CheckCircle2, BadgeCheck } from "lucide-react";
+import { FileText, MapPin, Settings2, CheckCircle2, BadgeCheck, Clock, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/summary")({
@@ -29,8 +29,8 @@ function SummaryPage() {
   }
 
   const { options, delivery } = data;
-  const breakdown = calcBreakdown(options);
-  const total = calcCost(options);
+  const breakdown = calcBreakdown(options, delivery.location);
+  const total = calcCost(options, delivery.location);
 
   const place = () => {
     const order = placeOrder(options, delivery);
@@ -50,12 +50,18 @@ function SummaryPage() {
           <div className="md:col-span-2 space-y-4">
             <Card icon={FileText} title="Document">
               <div className="text-sm">{options.fileName}</div>
+              {options.autoDetectedPages && (
+                <div className="text-xs text-success font-semibold mt-1 inline-flex items-center gap-1">
+                  <BadgeCheck className="w-3.5 h-3.5" /> {options.pages} pages auto-detected
+                </div>
+              )}
             </Card>
             <Card icon={Settings2} title="Print options">
               <ul className="text-sm space-y-1 text-muted-foreground">
-                <li>{options.pages} pages · {options.copies} {options.copies > 1 ? "copies" : "copy"} · {options.size} · {options.color === "bw" ? "B&W" : "Color"} · {options.sided === "single" ? "Single-sided" : "Double-sided"}</li>
-                {options.binding && <li>Spiral binding</li>}
-                {options.urgent && <li>Express delivery (under 2 hours)</li>}
+                <li>{options.pages} pages · {options.copies} {options.copies > 1 ? "copies" : "copy"} · {options.size} · {options.color === "bw" ? `B&W ₹3/pg` : `Color ₹10/pg`} · {options.sided === "single" ? "Single-sided" : "Double-sided"}</li>
+                {options.finishing === "staple" && <li>Stapling — <span className="text-success font-medium">FREE</span></li>}
+                {options.finishing === "bind" && <li>Binding — ₹{breakdown.bindingCost}</li>}
+                {options.urgent && <li>Express delivery</li>}
               </ul>
             </Card>
             <Card icon={MapPin} title="Delivery">
@@ -63,8 +69,17 @@ function SummaryPage() {
                 <div className="font-medium">{delivery.fullName} · {delivery.phone}</div>
                 <div className="text-muted-foreground">{delivery.institute} — {delivery.department}</div>
                 <div className="text-muted-foreground">{delivery.address}</div>
+                {delivery.location && (
+                  <div className="text-muted-foreground inline-flex items-center gap-2 mt-1">
+                    <Clock className="w-3.5 h-3.5 text-primary" />
+                    ETA ~ {delivery.location.etaMin} mins · {delivery.location.distanceKm} km from print partner
+                  </div>
+                )}
                 <div className="text-muted-foreground">Preferred: {delivery.time}</div>
               </div>
+            </Card>
+            <Card icon={ShieldCheck} title="Document security">
+              <p className="text-sm text-muted-foreground">End-to-end encrypted upload. Files accessible only to assigned print partner and auto-deleted within 24 hours of delivery.</p>
             </Card>
           </div>
           <aside>
@@ -72,28 +87,31 @@ function SummaryPage() {
               <div className="flex items-center justify-between mb-4">
                 <div className="text-sm text-muted-foreground">Estimated total</div>
                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-success/10 text-success text-[10px] font-semibold uppercase tracking-wide">
-                  <BadgeCheck className="w-3 h-3" /> Student Pricing
+                  <BadgeCheck className="w-3 h-3" /> Student
                 </span>
               </div>
               <div className="text-4xl font-bold text-primary mt-1">₹{total}</div>
               <div className="mt-5 space-y-2 text-sm">
-                <Row k="Pages" v={String(options.pages)} />
+                <Row k="Total pages" v={String(options.pages)} />
                 <Row k="Copies" v={String(options.copies)} />
-                <Row k="Print type" v={options.color === "bw" ? "B&W Printing" : "Color Printing"} />
+                <Row k="Print type" v={options.color === "bw" ? `B&W ₹3` : `Color ₹10`} />
                 <Row k="Print cost" v={`₹${breakdown.printCost}`} />
-                <Row k="Spiral binding" v={options.binding ? `₹${breakdown.bindingCost}` : "—"} />
-                <Row k="Delivery fee" v={breakdown.freeDelivery ? <span className="text-success font-semibold">FREE</span> : `₹${breakdown.deliveryFee}`} />
-                {options.urgent && <Row k="Express delivery" v={`₹${breakdown.expressFee}`} />}
+                <Row k="Stapling" v={options.finishing === "staple" ? <span className="text-success font-semibold">FREE</span> : "—"} />
+                <Row k="Binding" v={options.finishing === "bind" ? `₹${breakdown.bindingCost}` : "—"} />
+                <Row k="Delivery" v={breakdown.freeDelivery ? <span className="text-success font-semibold">FREE</span> : `₹${breakdown.deliveryFee}`} />
+                {options.urgent && <Row k="Express" v={`₹${breakdown.expressFee}`} />}
+                {delivery.location && <Row k="ETA" v={<span className="text-primary font-semibold">~ {delivery.location.etaMin} mins*</span>} />}
               </div>
               {breakdown.freeDelivery && (
                 <div className="mt-3 text-sm text-success font-medium flex items-center gap-1.5">
-                  <BadgeCheck className="w-4 h-4" /> You unlocked Free Delivery!
+                  <BadgeCheck className="w-4 h-4" /> Free Delivery unlocked!
                 </div>
               )}
               <Button className="btn-hero w-full mt-5 h-11" onClick={place}>
                 <CheckCircle2 className="w-4 h-4 mr-1" /> Place order
               </Button>
               <Button variant="outline" className="w-full mt-2" onClick={() => navigate({ to: "/order" })}>Edit options</Button>
+              <p className="text-[11px] text-muted-foreground mt-3">*Delivery times vary based on location, traffic, partner availability & order volume.</p>
             </div>
           </aside>
         </div>
@@ -117,4 +135,3 @@ function Card({ icon: Icon, title, children }: { icon: React.ComponentType<{ cla
     </div>
   );
 }
-

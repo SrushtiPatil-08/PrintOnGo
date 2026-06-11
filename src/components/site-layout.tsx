@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { Printer, Menu, X, Package } from "lucide-react";
+import { Printer, Menu, X, Clock, ShieldCheck } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 
@@ -34,20 +34,20 @@ export function SiteLayout({ children }: { children: ReactNode }) {
               </Link>
             ))}
           </nav>
-          <div className="hidden md:flex items-center gap-3">
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-success/10 text-success text-[11px] font-semibold">
-              <Package className="w-3.5 h-3.5" /> Free Delivery Above ₹50
+          <div className="hidden lg:flex items-center gap-3">
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-primary/10 text-primary text-[11px] font-semibold">
+              <Clock className="w-3.5 h-3.5" /> Delivery in as little as 10 minutes*
             </span>
             <Button asChild className="btn-hero">
               <Link to="/order">Order Now</Link>
             </Button>
           </div>
-          <button className="md:hidden p-2" onClick={() => setOpen(!open)} aria-label="Menu">
+          <button className="lg:hidden p-2" onClick={() => setOpen(!open)} aria-label="Menu">
             {open ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
           </button>
         </div>
         {open && (
-          <div className="md:hidden border-t border-border bg-background animate-fade-in">
+          <div className="lg:hidden border-t border-border bg-background animate-fade-in">
             <div className="container mx-auto px-4 py-3 flex flex-col gap-1">
               {nav.map(n => (
                 <Link key={n.to} to={n.to} onClick={() => setOpen(false)}
@@ -63,7 +63,7 @@ export function SiteLayout({ children }: { children: ReactNode }) {
         )}
       </header>
       <main className="flex-1">{children}</main>
-      <footer className="border-t border-border bg-secondary/40 mt-12">
+      <footer className="border-t border-border bg-[hsl(210_40%_98%)] mt-12">
         <div className="container mx-auto px-4 max-w-7xl py-12 grid md:grid-cols-4 gap-8">
           <div className="md:col-span-2">
             <div className="flex items-center gap-2 mb-3">
@@ -72,13 +72,18 @@ export function SiteLayout({ children }: { children: ReactNode }) {
               </span>
               <span className="font-display font-bold text-xl">PrintOnGo</span>
             </div>
-            <p className="text-sm text-muted-foreground max-w-sm">Upload. Print. Deliver. India's smartest student printing and document delivery platform.</p>
-            <div className="mt-3 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-success/10 text-success text-xs font-semibold">
-              <Package className="w-3.5 h-3.5" /> Free Standard Delivery on orders above ₹50
+            <p className="text-sm text-muted-foreground max-w-sm">Upload. Print. Deliver. India's smartest student printing & document delivery platform.</p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-primary/10 text-primary text-xs font-semibold">
+                <Clock className="w-3.5 h-3.5" /> Delivery in as little as 10 minutes*
+              </span>
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-success/10 text-success text-xs font-semibold">
+                <ShieldCheck className="w-3.5 h-3.5" /> End-to-End Encrypted
+              </span>
             </div>
           </div>
           <div>
-            <h4 className="font-semibold mb-3 text-sm">Product</h4>
+            <h4 className="font-semibold mb-3 text-sm text-primary">Product</h4>
             <ul className="space-y-2 text-sm text-muted-foreground">
               <li><Link to="/order" className="hover:text-foreground">Place Order</Link></li>
               <li><Link to="/track" className="hover:text-foreground">Track Order</Link></li>
@@ -86,7 +91,7 @@ export function SiteLayout({ children }: { children: ReactNode }) {
             </ul>
           </div>
           <div>
-            <h4 className="font-semibold mb-3 text-sm">Company</h4>
+            <h4 className="font-semibold mb-3 text-sm text-primary">Company</h4>
             <ul className="space-y-2 text-sm text-muted-foreground">
               <li><Link to="/about" className="hover:text-foreground">About</Link></li>
               <li><Link to="/faq" className="hover:text-foreground">FAQ</Link></li>
@@ -95,13 +100,15 @@ export function SiteLayout({ children }: { children: ReactNode }) {
           </div>
         </div>
         <div className="border-t border-border">
-          <div className="container mx-auto px-4 max-w-7xl py-4 text-xs text-muted-foreground flex justify-between">
-            <span>© {new Date().getFullYear()} PrintOnGo. All rights reserved.</span>
-            <span>Made for students, with ❤️</span>
+          <div className="container mx-auto px-4 max-w-7xl py-4 text-xs text-muted-foreground space-y-1.5">
+            <p>*Delivery times vary based on customer location, traffic conditions, print partner availability, document size, and order volume.</p>
+            <div className="flex flex-wrap justify-between gap-2 pt-1">
+              <span>© {new Date().getFullYear()} PrintOnGo. All rights reserved.</span>
+              <span>Made for students, with ❤️</span>
+            </div>
           </div>
         </div>
       </footer>
     </div>
   );
 }
-

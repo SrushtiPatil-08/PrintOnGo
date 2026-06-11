@@ -1,4 +1,4 @@
-// Simple client-side order store using sessionStorage + a static demo list
+// Client-side order store + pricing + delivery estimation
 export type PrintOptions = {
   fileName: string;
   pages: number;
@@ -6,8 +6,18 @@ export type PrintOptions = {
   color: "bw" | "color";
   sided: "single" | "double";
   size: "A4" | "A3";
-  binding: boolean;
+  finishing: "none" | "staple" | "bind";
   urgent: boolean;
+  autoDetectedPages?: boolean;
+};
+
+export type LocationInfo = {
+  lat?: number;
+  lng?: number;
+  label: string; // human-readable address
+  distanceKm: number; // distance to nearest print partner
+  etaMin: number; // estimated delivery time in minutes
+  deliveryFee: number;
 };
 
 export type DeliveryDetails = {
@@ -17,6 +27,7 @@ export type DeliveryDetails = {
   phone: string;
   address: string;
   time: string;
+  location?: LocationInfo;
 };
 
 export type Order = {
@@ -29,19 +40,32 @@ export type Order = {
 };
 
 export const STATUSES = [
-  "Order Received",
-  "Printing in Progress",
-  "Quality Check",
-  "Out for Delivery",
+  "Order Confirmed",
+  "Printing Started",
+  "Printing Completed",
+  "Picked Up By Delivery Partner",
+  "Out For Delivery",
   "Delivered",
 ] as const;
 export type OrderStatus = (typeof STATUSES)[number];
+
+// ---- Pricing ----
+export const RATE_BW = 3;     // ₹ per page
+export const RATE_COLOR = 10; // ₹ per page
+
+export function bindingCostFor(pages: number): number {
+  if (pages <= 0) return 0;
+  if (pages <= 50) return 20;
+  if (pages <= 100) return 35;
+  return 50;
+}
 
 export type CostBreakdown = {
   pages: number;
   copies: number;
   printRate: number;
   printCost: number;
+  stapleCost: number;
   bindingCost: number;
   subtotal: number;
   deliveryFee: number;
@@ -50,31 +74,46 @@ export type CostBreakdown = {
   freeDelivery: boolean;
 };
 
-export function calcBreakdown(o: PrintOptions): CostBreakdown {
-  const printRate = o.color === "color" ? 5 : 1;
+export function calcBreakdown(o: PrintOptions, loc?: LocationInfo): CostBreakdown {
+  const printRate = o.color === "color" ? RATE_COLOR : RATE_BW;
   const printCost = o.pages * o.copies * printRate;
-  const bindingCost = o.binding ? 20 : 0;
-  const subtotal = printCost + bindingCost;
-  const freeDelivery = subtotal >= 50;
-  const deliveryFee = freeDelivery ? 0 : 5;
-  const expressFee = o.urgent ? 10 : 0;
+  const stapleCost = 0; // free
+  const bindingCost = o.finishing === "bind" ? bindingCostFor(o.pages) : 0;
+  const subtotal = printCost + bindingCost + stapleCost;
+  const baseDelivery = loc ? loc.deliveryFee : 20;
+  const freeDelivery = subtotal >= 199; // free delivery threshold
+  const deliveryFee = freeDelivery ? 0 : baseDelivery;
+  const expressFee = o.urgent ? 15 : 0;
   const total = subtotal + deliveryFee + expressFee;
-  return {
-    pages: o.pages,
-    copies: o.copies,
-    printRate,
-    printCost,
-    bindingCost,
-    subtotal,
-    deliveryFee,
-    expressFee,
-    total,
-    freeDelivery,
-  };
+  return { pages: o.pages, copies: o.copies, printRate, printCost, stapleCost, bindingCost, subtotal, deliveryFee, expressFee, total, freeDelivery };
 }
 
-export function calcCost(o: PrintOptions): number {
-  return calcBreakdown(o).total;
+export function calcCost(o: PrintOptions, loc?: LocationInfo): number {
+  return calcBreakdown(o, loc).total;
+}
+
+// ---- Location / delivery estimation ----
+// Demo "nearest print partner" coordinates (central Bengaluru).
+export const PARTNER_COORDS = { lat: 12.9716, lng: 77.5946 };
+
+export function haversineKm(a: { lat: number; lng: number }, b: { lat: number; lng: number }) {
+  const R = 6371;
+  const toRad = (d: number) => (d * Math.PI) / 180;
+  const dLat = toRad(b.lat - a.lat);
+  const dLng = toRad(b.lng - a.lng);
+  const lat1 = toRad(a.lat); const lat2 = toRad(b.lat);
+  const h = Math.sin(dLat / 2) ** 2 + Math.sin(dLng / 2) ** 2 * Math.cos(lat1) * Math.cos(lat2);
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+
+export function estimateFromDistance(distanceKm: number): { etaMin: number; deliveryFee: number; band: string } {
+  if (distanceKm <= 1) return { etaMin: 12, deliveryFee: 15, band: "Within 1 km · 10–15 mins" };
+  if (distanceKm <= 3) return { etaMin: 20, deliveryFee: 25, band: "1–3 km · 15–25 mins" };
+  if (distanceKm <= 5) return { etaMin: 32, deliveryFee: 35, band: "3–5 km · 25–40 mins" };
+  // beyond 5 km — dynamic
+  const eta = Math.round(40 + (distanceKm - 5) * 6);
+  const fee = Math.round(35 + (distanceKm - 5) * 7);
+  return { etaMin: eta, deliveryFee: fee, band: `${distanceKm.toFixed(1)} km · ~${eta} mins` };
 }
 
 const KEY = "printongo:current";
@@ -89,17 +128,15 @@ export function getDraft(): Partial<{ options: PrintOptions; delivery: DeliveryD
   if (typeof window === "undefined") return {};
   try { return JSON.parse(sessionStorage.getItem(KEY) || "{}"); } catch { return {}; }
 }
-export function clearDraft() {
-  if (typeof window !== "undefined") sessionStorage.removeItem(KEY);
-}
+export function clearDraft() { if (typeof window !== "undefined") sessionStorage.removeItem(KEY); }
 
 export function placeOrder(options: PrintOptions, delivery: DeliveryDetails): Order {
   const order: Order = {
     id: "PG" + Date.now().toString().slice(-6),
     createdAt: new Date().toISOString(),
     options, delivery,
-    total: calcCost(options),
-    status: "Order Received",
+    total: calcCost(options, delivery.location),
+    status: "Order Confirmed",
   };
   const list = getOrders();
   list.unshift(order);
@@ -110,21 +147,24 @@ export function placeOrder(options: PrintOptions, delivery: DeliveryDetails): Or
 const DEMO: Order[] = [
   {
     id: "PG100234", createdAt: new Date().toISOString(),
-    options: { fileName: "DBMS_Assignment.pdf", pages: 20, copies: 2, color: "bw", sided: "double", size: "A4", binding: true, urgent: false },
-    delivery: { fullName: "Aarav Sharma", institute: "IIT Delhi", department: "CSE", phone: "9876543210", address: "Hostel 5, Room 214", time: "Evening" },
-    total: 60, status: "Out for Delivery",
+    options: { fileName: "DBMS_Assignment.pdf", pages: 20, copies: 2, color: "bw", sided: "double", size: "A4", finishing: "bind", urgent: false, autoDetectedPages: true },
+    delivery: { fullName: "Aarav Sharma", institute: "IIT Delhi", department: "CSE", phone: "9876543210", address: "Hostel 5, Room 214", time: "Evening",
+      location: { label: "IIT Delhi, Hauz Khas", distanceKm: 2.4, etaMin: 22, deliveryFee: 25 } },
+    total: 145, status: "Out For Delivery",
   },
   {
     id: "PG100235", createdAt: new Date().toISOString(),
-    options: { fileName: "Project_Report.docx", pages: 25, copies: 1, color: "color", sided: "single", size: "A4", binding: true, urgent: true },
-    delivery: { fullName: "Priya Verma", institute: "DU North Campus", department: "Economics", phone: "9123456780", address: "Kamla Nehru Hostel", time: "Morning" },
-    total: 155, status: "Printing in Progress",
+    options: { fileName: "Project_Report.docx", pages: 25, copies: 1, color: "color", sided: "single", size: "A4", finishing: "bind", urgent: true, autoDetectedPages: true },
+    delivery: { fullName: "Priya Verma", institute: "DU North Campus", department: "Economics", phone: "9123456780", address: "Kamla Nehru Hostel", time: "Morning",
+      location: { label: "DU North Campus", distanceKm: 0.8, etaMin: 12, deliveryFee: 15 } },
+    total: 285, status: "Printing Started",
   },
   {
     id: "PG100236", createdAt: new Date().toISOString(),
-    options: { fileName: "Notes_Unit3.pdf", pages: 15, copies: 5, color: "bw", sided: "double", size: "A4", binding: false, urgent: false },
-    delivery: { fullName: "Rahul Singh", institute: "NIT Trichy", department: "Mechanical", phone: "9988776655", address: "Garnet Hostel, Block A", time: "Afternoon" },
-    total: 75, status: "Delivered",
+    options: { fileName: "Notes_Unit3.pdf", pages: 15, copies: 5, color: "bw", sided: "double", size: "A4", finishing: "staple", urgent: false, autoDetectedPages: true },
+    delivery: { fullName: "Rahul Singh", institute: "NIT Trichy", department: "Mechanical", phone: "9988776655", address: "Garnet Hostel, Block A", time: "Afternoon",
+      location: { label: "NIT Trichy Campus", distanceKm: 4.2, etaMin: 32, deliveryFee: 35 } },
+    total: 260, status: "Delivered",
   },
 ];
 
@@ -145,4 +185,35 @@ export function getOrder(id: string): Order | undefined {
 export function updateOrderStatus(id: string, status: OrderStatus) {
   const list = getOrders().map(o => o.id === id ? { ...o, status } : o);
   localStorage.setItem(ORDERS_KEY, JSON.stringify(list));
+}
+
+// ---- Auto page detection ----
+// Best-effort, fully client-side; works without extra deps.
+export async function detectPageCount(file: File): Promise<number | null> {
+  const name = file.name.toLowerCase();
+  try {
+    if (name.endsWith(".pdf")) {
+      const buf = await file.arrayBuffer();
+      const txt = new TextDecoder("latin1").decode(new Uint8Array(buf));
+      const matches = txt.match(/\/Type\s*\/Page[^s]/g);
+      if (matches && matches.length > 0) return matches.length;
+      // fallback: count "/Count" entries
+      const c = txt.match(/\/Count\s+(\d+)/);
+      if (c) return parseInt(c[1]);
+      return null;
+    }
+    if (name.endsWith(".png") || name.endsWith(".jpg") || name.endsWith(".jpeg") || name.endsWith(".webp")) {
+      return 1;
+    }
+    if (name.endsWith(".docx")) {
+      // rough heuristic: 1 page per 25KB (docs vary, user can adjust)
+      return Math.max(1, Math.round(file.size / 25000));
+    }
+    if (name.endsWith(".pptx") || name.endsWith(".ppt")) {
+      return Math.max(1, Math.round(file.size / 60000));
+    }
+  } catch {
+    return null;
+  }
+  return null;
 }
