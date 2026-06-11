@@ -32,7 +32,9 @@ function DeliveryPage() {
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!/^\d{10}$/.test(d.phone)) { toast.error("Enter a valid 10-digit phone number"); return; }
-    saveDraft({ delivery: d });
+    // preserve location captured on the order page
+    const existing = getDraft().delivery;
+    saveDraft({ delivery: { ...d, location: existing?.location } });
     navigate({ to: "/summary" });
   };
 
