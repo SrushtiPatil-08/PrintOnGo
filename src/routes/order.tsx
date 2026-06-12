@@ -132,16 +132,23 @@ function OrderPage() {
                 <div className="text-xs text-muted-foreground mt-1">PDF, DOCX, PPT, PNG, JPG — up to 20MB</div>
                 <input id="file" type="file" accept=".pdf,.doc,.docx,.ppt,.pptx,.png,.jpg,.jpeg" className="hidden" onChange={onFile} />
               </label>
-              {opts.fileName && (
-                <div className="mt-3 flex items-center justify-between text-sm">
+              {parsing && (
+                <div className="mt-3 flex items-center gap-2 text-sm text-muted-foreground">
+                  <Loader2 className="w-4 h-4 animate-spin text-primary" /> Analyzing document pages…
+                </div>
+              )}
+              {!parsing && opts.fileName && (
+                <div className="mt-3 flex items-center justify-between text-sm flex-wrap gap-2">
                   <div className="flex items-center gap-2 text-muted-foreground">
                     <FileText className="w-4 h-4" /> {opts.fileName}
                   </div>
-                  {opts.autoDetectedPages && (
+                  {opts.autoDetectedPages ? (
                     <span className="inline-flex items-center gap-1 text-xs text-success font-semibold">
-                      <BadgeCheck className="w-3.5 h-3.5" /> {opts.pages} pages auto-detected
+                      <BadgeCheck className="w-3.5 h-3.5" /> ✅ {opts.pages} {detectSource === "pptx-xml" ? "slides" : "pages"} detected
                     </span>
-                  )}
+                  ) : detectSource === "estimate" ? (
+                    <span className="text-xs text-muted-foreground">~{opts.pages} pages estimated — verify below</span>
+                  ) : null}
                 </div>
               )}
               <div className="mt-4 flex flex-wrap gap-2 text-[11px]">
