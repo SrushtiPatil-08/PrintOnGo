@@ -48,22 +48,40 @@ function SummaryPage() {
 
         <div className="grid md:grid-cols-3 gap-6">
           <div className="md:col-span-2 space-y-4">
-            <Card icon={FileText} title="Document">
-              <div className="text-sm">{options.fileName}</div>
-              {options.autoDetectedPages && (
-                <div className="text-xs text-success font-semibold mt-1 inline-flex items-center gap-1">
-                  <BadgeCheck className="w-3.5 h-3.5" /> {options.pages} pages auto-detected
-                </div>
+            <Card icon={FileText} title={options.documents && options.documents.length > 1 ? `${options.documents.length} documents` : "Document"}>
+              {options.documents && options.documents.length > 0 ? (
+                <ul className="text-sm space-y-1.5">
+                  {options.documents.map((d, i) => (
+                    <li key={d.id} className="flex justify-between gap-2">
+                      <span className="truncate">
+                        {i + 1}. <span className="font-medium">{d.fileName}</span>
+                        <span className="text-muted-foreground"> — {d.pages} pg × {d.copies} cp · {d.color === "bw" ? "B&W" : "Color"}{d.staple ? " · Stapled" : ""}</span>
+                      </span>
+                      <span className="font-medium shrink-0">₹{d.pages * d.copies * (d.color === "color" ? 10 : 3)}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <>
+                  <div className="text-sm">{options.fileName}</div>
+                  {options.autoDetectedPages && (
+                    <div className="text-xs text-success font-semibold mt-1 inline-flex items-center gap-1">
+                      <BadgeCheck className="w-3.5 h-3.5" /> {options.pages} pages auto-detected
+                    </div>
+                  )}
+                </>
               )}
             </Card>
             <Card icon={Settings2} title="Print options">
               <ul className="text-sm space-y-1 text-muted-foreground">
-                <li>{options.pages} pages · {options.copies} {options.copies > 1 ? "copies" : "copy"} · {options.size} · {options.color === "bw" ? `B&W ₹3/pg` : `Color ₹10/pg`} · {options.sided === "single" ? "Single-sided" : "Double-sided"}</li>
-                {options.finishing === "staple" && <li>Stapling — <span className="text-success font-medium">FREE</span></li>}
-                {options.finishing === "bind" && <li>Binding — ₹{breakdown.bindingCost}</li>}
+                <li>{options.pages} total pages · {options.copies} total {options.copies > 1 ? "copies" : "copy"}{options.documents && options.documents.length > 1 ? ` across ${options.documents.length} docs` : ` · ${options.color === "bw" ? "B&W ₹3/pg" : "Color ₹10/pg"}`}</li>
+                {!options.documents && options.finishing === "staple" && <li>Stapling — <span className="text-success font-medium">FREE</span></li>}
+                {!options.documents && options.finishing === "bind" && <li>Binding — ₹{breakdown.bindingCost}</li>}
+                {options.documents?.some(d => d.staple) && <li>Stapling on selected docs — <span className="text-success font-medium">FREE</span></li>}
                 {options.urgent && <li>Express delivery</li>}
               </ul>
             </Card>
+
             <Card icon={MapPin} title="Delivery">
               <div className="text-sm space-y-1">
                 <div className="font-medium">{delivery.fullName} · {delivery.phone}</div>

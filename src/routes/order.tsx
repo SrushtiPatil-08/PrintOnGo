@@ -4,15 +4,14 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
-  Upload, FileText, BadgeCheck, ShieldCheck, Lock, MapPin, Loader2, Navigation, Clock,
+  Upload, FileText, BadgeCheck, ShieldCheck, Lock, MapPin, Loader2, Navigation, Clock, Plus, Trash2,
 } from "lucide-react";
 import {
-  calcBreakdown, getDraft, saveDraft, type PrintOptions, type LocationInfo,
-  detectPageCount, haversineKm, estimateFromDistance, PARTNER_COORDS, bindingCostFor,
-  HUB_NAME, MAX_DELIVERY_RADIUS_KM, HYPERLOCAL_RADIUS_KM,
+  calcBreakdown, getDraft, saveDraft, type PrintOptions, type LocationInfo, type DocItem,
+  detectPageCount, haversineKm, estimateFromDistance, PARTNER_COORDS,
+  HUB_NAME, MAX_DELIVERY_RADIUS_KM, HYPERLOCAL_RADIUS_KM, rateFor,
 } from "@/lib/order-store";
 import { toast } from "sonner";
 
@@ -21,51 +20,87 @@ export const Route = createFileRoute("/order")({
   component: OrderPage,
 });
 
+const MAX_SIZE = 20 * 1024 * 1024;
+const newId = () => Math.random().toString(36).slice(2, 9);
+
 function OrderPage() {
   const navigate = useNavigate();
-  const [opts, setOpts] = useState<PrintOptions>({
-    fileName: "", pages: 1, copies: 1, color: "bw", sided: "single", size: "A4",
-    finishing: "none", urgent: false, autoDetectedPages: false,
-  });
+  const [docs, setDocs] = useState<DocItem[]>([]);
+  const [urgent, setUrgent] = useState(false);
   const [location, setLocation] = useState<LocationInfo | undefined>(undefined);
   const [locating, setLocating] = useState(false);
   const [manualAddress, setManualAddress] = useState("");
-  const [parsing, setParsing] = useState(false);
-  const [detectSource, setDetectSource] = useState<string | null>(null);
+  const [parsingIds, setParsingIds] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     const d = getDraft();
-    if (d.options) setOpts(d.options);
+    if (d.options?.documents?.length) setDocs(d.options.documents);
+    if (d.options?.urgent) setUrgent(true);
     if (d.delivery?.location) setLocation(d.delivery.location);
   }, []);
 
+  // Build aggregate PrintOptions for the calculation engine
+  const opts: PrintOptions = useMemo(() => {
+    const first = docs[0];
+    return {
+      fileName: docs.length === 0 ? "" : docs.length === 1 ? first.fileName : `${first.fileName} +${docs.length - 1} more`,
+      pages: docs.reduce((s, d) => s + (d.pages || 0), 0),
+      copies: docs.reduce((s, d) => s + (d.copies || 0), 0),
+      color: docs.some(d => d.color === "color") ? "color" : "bw",
+      sided: "single",
+      size: "A4",
+      finishing: docs.some(d => d.staple) ? "staple" : "none",
+      urgent,
+      autoDetectedPages: docs.every(d => d.autoDetectedPages),
+      documents: docs,
+    };
+  }, [docs, urgent]);
+
   const breakdown = calcBreakdown(opts, location);
   const outOfBounds = !!location?.outOfBounds;
-  const update = <K extends keyof PrintOptions>(k: K, v: PrintOptions[K]) => setOpts(p => ({ ...p, [k]: v }));
 
-  const onFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const f = e.target.files?.[0];
-    if (!f) return;
-    if (f.size > 20 * 1024 * 1024) { toast.error("File too large (max 20MB)"); return; }
-    update("fileName", f.name);
-    setParsing(true);
-    setDetectSource(null);
-    const result = await detectPageCount(f);
-    setParsing(false);
-    if (result) {
-      setOpts(p => ({ ...p, fileName: f.name, pages: result.pages, autoDetectedPages: result.source !== "estimate" }));
-      setDetectSource(result.source);
-      const label = result.source === "pptx-xml" ? "slides" : "pages";
-      if (result.source === "estimate") {
-        toast.message(`~${result.pages} ${label} estimated — please verify`);
-      } else {
-        toast.success(`Detected ${result.pages} ${label} from ${f.name}`);
-      }
-    } else {
-      setOpts(p => ({ ...p, fileName: f.name, autoDetectedPages: false }));
-      toast.error("Couldn't auto-detect — please enter pages manually");
+  const allDetected = docs.length > 0 && docs.every(d => d.pages > 0);
+  const anyParsing = Object.values(parsingIds).some(Boolean);
+  const canContinue = docs.length > 0 && allDetected && !anyParsing && !!location && !outOfBounds;
+
+  const addFiles = async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    const accepted: DocItem[] = [];
+    for (const f of Array.from(files)) {
+      if (f.size > MAX_SIZE) { toast.error(`${f.name} is over 20MB`); continue; }
+      accepted.push({
+        id: newId(), fileName: f.name, pages: 0, copies: 1, color: "bw", staple: false,
+      });
     }
+    if (accepted.length === 0) return;
+    setDocs(prev => [...prev, ...accepted]);
+
+    // Parse each file in parallel
+    await Promise.all(accepted.map(async (item, idx) => {
+      const f = files[idx];
+      if (!f || f.name !== item.fileName) return;
+      setParsingIds(p => ({ ...p, [item.id]: true }));
+      try {
+        const result = await detectPageCount(f);
+        setDocs(prev => prev.map(d => d.id === item.id
+          ? { ...d, pages: result?.pages ?? 1, autoDetectedPages: !!result && result.source !== "estimate", detectSource: result?.source }
+          : d));
+        if (result) {
+          const label = result.source === "pptx-xml" ? "slides" : "pages";
+          if (result.source === "estimate") toast.message(`~${result.pages} ${label} estimated for ${f.name}`);
+          else toast.success(`Detected ${result.pages} ${label} in ${f.name}`);
+        } else {
+          toast.error(`Couldn't read ${f.name} — set pages manually`);
+        }
+      } finally {
+        setParsingIds(p => { const n = { ...p }; delete n[item.id]; return n; });
+      }
+    }));
   };
+
+  const updateDoc = (id: string, patch: Partial<DocItem>) =>
+    setDocs(prev => prev.map(d => d.id === id ? { ...d, ...patch } : d));
+  const removeDoc = (id: string) => setDocs(prev => prev.filter(d => d.id !== id));
 
   const applyCoords = (lat: number, lng: number, label: string) => {
     const distanceKm = haversineKm({ lat, lng }, PARTNER_COORDS);
@@ -95,7 +130,6 @@ function OrderPage() {
   const useManual = () => {
     const a = manualAddress.trim();
     if (a.length < 5) { toast.error("Enter a more specific address"); return; }
-    // Heuristic: simulate proximity to Vartak campus based on keywords
     const lc = a.toLowerCase();
     let distanceKm = 2.2;
     if (/(vartak|polytechnic|vasai|campus|hostel|college)/.test(lc)) distanceKm = 0.8;
@@ -107,10 +141,13 @@ function OrderPage() {
   };
 
   const onContinue = () => {
-    if (!opts.fileName) { toast.error("Please upload a document first"); return; }
+    if (docs.length === 0) { toast.error("Upload at least one document"); return; }
+    if (!allDetected) { toast.error("Set page count for every document"); return; }
+    if (anyParsing) { toast.error("Still analyzing documents…"); return; }
     if (!location) { toast.error("Please set your delivery location"); return; }
     if (location.outOfBounds) { toast.error("Delivery unavailable for this address"); return; }
-    saveDraft({ options: opts, delivery: { ...(getDraft().delivery ?? { fullName: "", institute: "", department: "", phone: "", address: "", time: "Anytime" }), location, address: location.label } });
+    const prevDelivery = getDraft().delivery ?? { fullName: "", institute: "", department: "", phone: "", address: "", time: "Anytime" };
+    saveDraft({ options: opts, delivery: { ...prevDelivery, location, address: location.label } });
     navigate({ to: "/delivery" });
   };
 
@@ -119,38 +156,27 @@ function OrderPage() {
       <section className="container mx-auto px-4 max-w-5xl py-12">
         <Stepper step={1} />
         <h1 className="text-4xl font-bold mt-6 mb-2">Place your order</h1>
-        <p className="text-muted-foreground mb-8">Upload your file, pick options & set your delivery location.</p>
+        <p className="text-muted-foreground mb-8">Upload one or many documents, configure each, then set your delivery location.</p>
 
         <div className="grid lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2 space-y-6">
             {/* 1. Upload */}
             <div className="card-elevated p-6">
-              <Label className="text-base font-semibold mb-3 block">1. Upload document</Label>
+              <div className="flex items-center justify-between mb-3">
+                <Label className="text-base font-semibold">1. Upload documents</Label>
+                {docs.length > 0 && (
+                  <span className="text-xs text-muted-foreground">{docs.length} file{docs.length > 1 ? "s" : ""} queued</span>
+                )}
+              </div>
               <label htmlFor="file" className="block border-2 border-dashed border-border rounded-xl p-8 text-center cursor-pointer hover:border-primary transition-colors bg-secondary/30">
                 <Upload className="w-8 h-8 mx-auto mb-2 text-primary" />
-                <div className="font-medium">{opts.fileName ? opts.fileName : "Click to upload or drag & drop"}</div>
-                <div className="text-xs text-muted-foreground mt-1">PDF, DOCX, PPT, PNG, JPG — up to 20MB</div>
-                <input id="file" type="file" accept=".pdf,.doc,.docx,.ppt,.pptx,.png,.jpg,.jpeg" className="hidden" onChange={onFile} />
+                <div className="font-medium">{docs.length === 0 ? "Click to upload or drag & drop" : "Add more files"}</div>
+                <div className="text-xs text-muted-foreground mt-1">PDF, DOCX, PPT, PNG, JPG — up to 20MB each · multiple allowed</div>
+                <input id="file" type="file" multiple accept=".pdf,.doc,.docx,.ppt,.pptx,.png,.jpg,.jpeg,.webp"
+                  className="hidden"
+                  onChange={(e) => { addFiles(e.target.files); e.target.value = ""; }} />
               </label>
-              {parsing && (
-                <div className="mt-3 flex items-center gap-2 text-sm text-muted-foreground">
-                  <Loader2 className="w-4 h-4 animate-spin text-primary" /> Analyzing document pages…
-                </div>
-              )}
-              {!parsing && opts.fileName && (
-                <div className="mt-3 flex items-center justify-between text-sm flex-wrap gap-2">
-                  <div className="flex items-center gap-2 text-muted-foreground">
-                    <FileText className="w-4 h-4" /> {opts.fileName}
-                  </div>
-                  {opts.autoDetectedPages ? (
-                    <span className="inline-flex items-center gap-1 text-xs text-success font-semibold">
-                      <BadgeCheck className="w-3.5 h-3.5" /> ✅ {opts.pages} {detectSource === "pptx-xml" ? "slides" : "pages"} detected
-                    </span>
-                  ) : detectSource === "estimate" ? (
-                    <span className="text-xs text-muted-foreground">~{opts.pages} pages estimated — verify below</span>
-                  ) : null}
-                </div>
-              )}
+
               <div className="mt-4 flex flex-wrap gap-2 text-[11px]">
                 <Pill icon={ShieldCheck} text="End-to-End Encrypted Upload" />
                 <Pill icon={Lock} text="Secure Processing" />
@@ -158,84 +184,100 @@ function OrderPage() {
               </div>
             </div>
 
-            {/* 2. Print options */}
-            <div className="card-elevated p-6 space-y-6">
-              <Label className="text-base font-semibold block">2. Print options</Label>
-
-              <div className="grid sm:grid-cols-2 gap-4">
-                <div>
-                  <Label className="mb-2 block text-sm">
-                    Number of pages {opts.autoDetectedPages && <span className="text-success text-[10px] font-semibold ml-1">AUTO</span>}
-                  </Label>
-                  <Input type="number" min={1} max={1000} value={opts.pages}
-                    onChange={(e) => setOpts(p => ({ ...p, pages: Math.max(1, parseInt(e.target.value) || 1), autoDetectedPages: false }))} />
-                </div>
-                <div>
-                  <Label className="mb-2 block text-sm">Number of copies</Label>
-                  <Input type="number" min={1} max={500} value={opts.copies}
-                    onChange={(e) => update("copies", Math.max(1, parseInt(e.target.value) || 1))} />
-                </div>
+            {/* 2. Per-document print options */}
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <Label className="text-base font-semibold">2. Print options (per document)</Label>
+                {docs.length > 1 && <span className="text-xs text-muted-foreground">Configure each independently</span>}
               </div>
 
-              <div className="grid sm:grid-cols-2 gap-4">
-                <div>
-                  <Label className="mb-2 block text-sm">Paper size</Label>
-                  <RadioGroup value={opts.size} onValueChange={(v) => update("size", v as "A4" | "A3")} className="flex gap-2">
-                    {(["A4", "A3"] as const).map(s => (
-                      <label key={s} className={`flex-1 border rounded-lg px-4 py-2.5 cursor-pointer text-center text-sm font-medium transition ${opts.size === s ? "border-primary bg-primary/5" : "border-border"}`}>
-                        <RadioGroupItem value={s} className="sr-only" /> {s}
-                      </label>
-                    ))}
-                  </RadioGroup>
+              {docs.length === 0 && (
+                <div className="card-elevated p-8 text-center text-sm text-muted-foreground">
+                  <Plus className="w-5 h-5 mx-auto mb-2 opacity-60" />
+                  Upload a document above to configure print options.
                 </div>
-                <div>
-                  <Label className="mb-2 block text-sm">Color · ₹{opts.color === "color" ? 10 : 3}/page</Label>
-                  <RadioGroup value={opts.color} onValueChange={(v) => update("color", v as "bw" | "color")} className="flex gap-2">
-                    {[{ k: "bw", l: "B&W ₹3" }, { k: "color", l: "Color ₹10" }].map(o => (
-                      <label key={o.k} className={`flex-1 border rounded-lg px-4 py-2.5 cursor-pointer text-center text-sm font-medium transition ${opts.color === o.k ? "border-primary bg-primary/5" : "border-border"}`}>
-                        <RadioGroupItem value={o.k} className="sr-only" /> {o.l}
-                      </label>
-                    ))}
-                  </RadioGroup>
+              )}
+
+              {docs.map((d, idx) => {
+                const parsing = !!parsingIds[d.id];
+                const lineCost = d.pages * d.copies * rateFor(d.color);
+                return (
+                  <div key={d.id} className="card-elevated p-5">
+                    <div className="flex items-start justify-between gap-3 mb-4">
+                      <div className="min-w-0">
+                        <div className="text-xs font-semibold text-primary uppercase tracking-wide">Doc {idx + 1}</div>
+                        <div className="flex items-center gap-2 mt-1">
+                          <FileText className="w-4 h-4 text-muted-foreground shrink-0" />
+                          <span className="font-medium truncate">{d.fileName}</span>
+                        </div>
+                        <div className="mt-1 text-xs">
+                          {parsing ? (
+                            <span className="inline-flex items-center gap-1 text-muted-foreground"><Loader2 className="w-3 h-3 animate-spin" /> Analyzing pages…</span>
+                          ) : d.autoDetectedPages ? (
+                            <span className="inline-flex items-center gap-1 text-success font-semibold"><BadgeCheck className="w-3 h-3" /> {d.pages} {d.detectSource === "pptx-xml" ? "slides" : "pages"} detected</span>
+                          ) : d.pages > 0 ? (
+                            <span className="text-muted-foreground">~{d.pages} pages estimated — verify</span>
+                          ) : (
+                            <span className="text-destructive">Pages not detected</span>
+                          )}
+                        </div>
+                      </div>
+                      <Button variant="ghost" size="icon" onClick={() => removeDoc(d.id)} aria-label="Remove file">
+                        <Trash2 className="w-4 h-4 text-destructive" />
+                      </Button>
+                    </div>
+
+                    <div className="grid sm:grid-cols-2 gap-4">
+                      <div>
+                        <Label className="mb-2 block text-sm">Pages {d.autoDetectedPages && <span className="text-success text-[10px] font-semibold ml-1">AUTO</span>}</Label>
+                        <Input type="number" min={1} max={2000} value={d.pages || ""}
+                          onChange={(e) => updateDoc(d.id, { pages: Math.max(1, parseInt(e.target.value) || 1), autoDetectedPages: false })} />
+                      </div>
+                      <div>
+                        <Label className="mb-2 block text-sm">Copies</Label>
+                        <Input type="number" min={1} max={500} value={d.copies}
+                          onChange={(e) => updateDoc(d.id, { copies: Math.max(1, parseInt(e.target.value) || 1) })} />
+                      </div>
+                    </div>
+
+                    <div className="grid sm:grid-cols-2 gap-4 mt-4">
+                      <div>
+                        <Label className="mb-2 block text-sm">Color mode</Label>
+                        <div className="flex gap-2">
+                          {[{ k: "bw", l: "B&W ₹3/pg" }, { k: "color", l: "Color ₹10/pg" }].map(o => (
+                            <button type="button" key={o.k} onClick={() => updateDoc(d.id, { color: o.k as "bw" | "color" })}
+                              className={`flex-1 border rounded-lg px-3 py-2.5 text-sm font-medium transition ${d.color === o.k ? "border-primary bg-primary/5" : "border-border"}`}>
+                              {o.l}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      <div>
+                        <Label className="mb-2 block text-sm">Finishing</Label>
+                        <div className="flex items-center justify-between border rounded-lg px-3 py-2.5">
+                          <div>
+                            <div className="text-sm font-medium">Staple</div>
+                            <div className="text-[11px] text-muted-foreground">Free for students</div>
+                          </div>
+                          <Switch checked={d.staple} onCheckedChange={(v) => updateDoc(d.id, { staple: v })} />
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="mt-4 pt-3 border-t border-border flex items-center justify-between text-sm">
+                      <span className="text-muted-foreground">{d.pages} pg × {d.copies} cp × ₹{rateFor(d.color)}</span>
+                      <span className="font-semibold">₹{lineCost}</span>
+                    </div>
+                  </div>
+                );
+              })}
+
+              {docs.length > 0 && (
+                <div className="card-elevated p-4">
+                  <ToggleRow label="Express delivery" desc="Additional ₹15 — prioritized printing & dispatch."
+                    checked={urgent} onChange={setUrgent} />
                 </div>
-              </div>
-
-              <div>
-                <Label className="mb-2 block text-sm">Sides</Label>
-                <RadioGroup value={opts.sided} onValueChange={(v) => update("sided", v as "single" | "double")} className="flex gap-2 max-w-sm">
-                  {[{ k: "single", l: "Single-sided" }, { k: "double", l: "Double-sided" }].map(o => (
-                    <label key={o.k} className={`flex-1 border rounded-lg px-4 py-2.5 cursor-pointer text-center text-sm font-medium transition ${opts.sided === o.k ? "border-primary bg-primary/5" : "border-border"}`}>
-                      <RadioGroupItem value={o.k} className="sr-only" /> {o.l}
-                    </label>
-                  ))}
-                </RadioGroup>
-              </div>
-
-              <div>
-                <Label className="mb-2 block text-sm">Finishing</Label>
-                <div className="grid sm:grid-cols-3 gap-2">
-                  {[
-                    { k: "none", l: "None", sub: "Loose sheets" },
-                    { k: "staple", l: "Staple", sub: "FREE · Included" },
-                    { k: "bind", l: "Bind", sub: `₹${bindingCostFor(opts.pages)} for ${opts.pages}p` },
-                  ].map(o => (
-                    <button
-                      type="button"
-                      key={o.k}
-                      onClick={() => update("finishing", o.k as PrintOptions["finishing"])}
-                      className={`text-left border rounded-lg px-3 py-2.5 text-sm transition ${opts.finishing === o.k ? "border-primary bg-primary/5" : "border-border"}`}
-                    >
-                      <div className="font-medium">{o.l}</div>
-                      <div className="text-[11px] text-muted-foreground">{o.sub}</div>
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="space-y-3 pt-2 border-t border-border">
-                <ToggleRow label="Express delivery" desc="Additional ₹15 — prioritized printing & dispatch."
-                  checked={opts.urgent} onChange={(v) => update("urgent", v)} />
-              </div>
+              )}
             </div>
 
             {/* 3. Location */}
@@ -305,21 +347,38 @@ function OrderPage() {
                   <BadgeCheck className="w-3 h-3" /> Student
                 </span>
               </div>
-              <div className="space-y-2 text-sm">
-                <Row k="Total pages" v={String(opts.pages)} />
-                <Row k="Copies" v={String(opts.copies)} />
-                <Row k="Print type" v={opts.color === "bw" ? `B&W · ₹${breakdown.printRate}/pg` : `Color · ₹${breakdown.printRate}/pg`} />
-                <Row k="Print cost" v={`₹${breakdown.printCost}`} />
-                <Row k="Stapling" v={opts.finishing === "staple" ? <span className="text-success font-semibold">FREE</span> : "—"} />
-                <Row k="Binding" v={opts.finishing === "bind" ? `₹${breakdown.bindingCost}` : "—"} />
-                <Row
-                  k={location ? `Delivery (${location.distanceKm} km)` : "Delivery"}
-                  v={breakdown.freeDelivery ? <span className="text-success font-semibold">FREE</span> : `₹${breakdown.deliveryFee}`}
-                />
-                {opts.urgent && <Row k="Express" v={`₹${breakdown.expressFee}`} />}
-                {location && <Row k="ETA" v={<span className="text-primary font-semibold">~ {location.etaMin} mins</span>} />}
-              </div>
-              {breakdown.freeDelivery && (
+
+              {docs.length === 0 ? (
+                <p className="text-sm text-muted-foreground">Add documents to see your total.</p>
+              ) : (
+                <>
+                  <div className="space-y-2 text-sm max-h-48 overflow-auto pr-1">
+                    {docs.map((d, i) => (
+                      <div key={d.id} className="flex justify-between gap-2">
+                        <span className="text-muted-foreground truncate">
+                          {i + 1}. {d.fileName.length > 18 ? d.fileName.slice(0, 16) + "…" : d.fileName}
+                          <span className="ml-1 text-[11px]">({d.color === "bw" ? "B&W" : "Color"}{d.staple ? " · Stp" : ""})</span>
+                        </span>
+                        <span className="font-medium shrink-0">₹{d.pages * d.copies * rateFor(d.color)}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="border-t border-border my-3" />
+                  <div className="space-y-2 text-sm">
+                    <Row k="Total pages" v={String(breakdown.pages)} />
+                    <Row k="Total copies" v={String(breakdown.copies)} />
+                    <Row k="Print cost" v={`₹${breakdown.printCost}`} />
+                    <Row
+                      k={location ? `Delivery (${location.distanceKm} km)` : "Delivery"}
+                      v={breakdown.freeDelivery ? <span className="text-success font-semibold">FREE</span> : `₹${breakdown.deliveryFee}`}
+                    />
+                    {urgent && <Row k="Express" v={`₹${breakdown.expressFee}`} />}
+                    {location && <Row k="ETA" v={<span className="text-primary font-semibold">~ {location.etaMin} mins</span>} />}
+                  </div>
+                </>
+              )}
+
+              {breakdown.freeDelivery && docs.length > 0 && (
                 <div className="mt-3 text-sm text-success font-medium flex items-center gap-1.5">
                   <BadgeCheck className="w-4 h-4" /> You unlocked Free Delivery!
                 </div>
@@ -329,8 +388,12 @@ function OrderPage() {
                 <span className="text-3xl font-bold text-primary">₹{breakdown.total}</span>
               </div>
               <p className="text-xs text-muted-foreground mt-2">B&W ₹3/pg · Color ₹10/pg · Stapling free · Free delivery above ₹199.</p>
-              <Button className="btn-hero w-full mt-5 h-11" onClick={onContinue} disabled={outOfBounds}>
-                {outOfBounds ? "Out of delivery zone" : "Continue to delivery"}
+              <Button className="btn-hero w-full mt-5 h-11" onClick={onContinue} disabled={!canContinue}>
+                {outOfBounds ? "Out of delivery zone"
+                  : docs.length === 0 ? "Upload a document"
+                  : !allDetected || anyParsing ? "Set pages for all docs"
+                  : !location ? "Set delivery location"
+                  : "Continue to delivery"}
               </Button>
             </div>
           </aside>
