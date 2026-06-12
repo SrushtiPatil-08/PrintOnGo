@@ -247,7 +247,7 @@ function OrderPage() {
                 </span>
               </div>
               <p className="text-xs text-muted-foreground mb-4">
-                Estimated delivery time and fees are calculated dynamically based on your distance from the nearest print partner.
+                Hyper-local printing from <span className="font-medium text-foreground">{HUB_NAME}</span>. Orders within {HYPERLOCAL_RADIUS_KM} km arrive in under 10 minutes. Max delivery radius: {MAX_DELIVERY_RADIUS_KM} km.
               </p>
               <div className="flex flex-wrap gap-2 mb-3">
                 <Button type="button" variant="outline" onClick={detectLocation} disabled={locating} className="h-10">
@@ -260,11 +260,16 @@ function OrderPage() {
                 <Button type="button" onClick={useManual} variant="secondary">Set</Button>
               </div>
 
-              {location && (
+              {location && !location.outOfBounds && (
                 <div className="mt-4 grid sm:grid-cols-3 gap-3">
-                  <LocStat icon={MapPin} label="Distance from print partner" value={`${location.distanceKm} km`} />
-                  <LocStat icon={Clock} label="Estimated delivery time" value={`~ ${location.etaMin} mins`} />
+                  <LocStat icon={MapPin} label={`Distance from ${HUB_NAME}`} value={`${location.distanceKm} km`} />
+                  <LocStat icon={Clock} label="Estimated delivery time" value={location.hyperLocal ? "Under 10 mins" : `~ ${location.etaMin} mins`} success={location.hyperLocal} />
                   <LocStat icon={BadgeCheck} label="Delivery charges" value={breakdown.freeDelivery ? "FREE" : `₹${location.deliveryFee}`} success={breakdown.freeDelivery} />
+                  {location.hyperLocal && (
+                    <div className="sm:col-span-3 rounded-lg border border-success/30 bg-success/5 text-success text-xs font-semibold px-3 py-2 inline-flex items-center gap-2">
+                      <BadgeCheck className="w-4 h-4" /> Hyper-local zone · delivered in under 10 mins
+                    </div>
+                  )}
                   <div className="sm:col-span-3 rounded-lg overflow-hidden border border-border bg-secondary/30 h-36 flex items-center justify-center text-xs text-muted-foreground">
                     {location.lat && location.lng ? (
                       <iframe
@@ -278,6 +283,13 @@ function OrderPage() {
                   </div>
                 </div>
               )}
+
+              {outOfBounds && (
+                <div className="mt-4 rounded-lg border border-destructive/30 bg-destructive/5 text-destructive text-sm px-4 py-3">
+                  Sorry! PrintOnGo is currently only operating within a 10–20 min hyper-local radius of university campuses like Vartak Polytechnic.
+                </div>
+              )}
+
               <p className="mt-3 text-[11px] text-muted-foreground">
                 *Delivery times vary based on customer location, traffic, print partner availability & order volume.
               </p>
