@@ -1,4 +1,15 @@
 // Client-side order store + pricing + delivery estimation
+export type DocItem = {
+  id: string;
+  fileName: string;
+  pages: number;
+  copies: number;
+  color: "bw" | "color";
+  staple: boolean;
+  autoDetectedPages?: boolean;
+  detectSource?: string;
+};
+
 export type PrintOptions = {
   fileName: string;
   pages: number;
@@ -9,14 +20,15 @@ export type PrintOptions = {
   finishing: "none" | "staple" | "bind";
   urgent: boolean;
   autoDetectedPages?: boolean;
+  documents?: DocItem[]; // when present, pricing aggregates across these
 };
 
 export type LocationInfo = {
   lat?: number;
   lng?: number;
-  label: string; // human-readable address
-  distanceKm: number; // distance to nearest print partner
-  etaMin: number; // estimated delivery time in minutes
+  label: string;
+  distanceKm: number;
+  etaMin: number;
   deliveryFee: number;
   hyperLocal?: boolean;
   outOfBounds?: boolean;
@@ -54,6 +66,11 @@ export type OrderStatus = (typeof STATUSES)[number];
 // ---- Pricing ----
 export const RATE_BW = 3;     // ₹ per page
 export const RATE_COLOR = 10; // ₹ per page
+export const STAPLE_FEE = 0;  // stapling is free for students
+
+export function rateFor(color: "bw" | "color") {
+  return color === "color" ? RATE_COLOR : RATE_BW;
+}
 
 export function bindingCostFor(pages: number): number {
   if (pages <= 0) return 0;
@@ -74,20 +91,48 @@ export type CostBreakdown = {
   expressFee: number;
   total: number;
   freeDelivery: boolean;
+  documentCount: number;
 };
 
 export function calcBreakdown(o: PrintOptions, loc?: LocationInfo): CostBreakdown {
-  const printRate = o.color === "color" ? RATE_COLOR : RATE_BW;
-  const printCost = o.pages * o.copies * printRate;
-  const stapleCost = 0; // free
-  const bindingCost = o.finishing === "bind" ? bindingCostFor(o.pages) : 0;
+  const docs = o.documents && o.documents.length > 0 ? o.documents : null;
+
+  let printCost = 0;
+  let stapleCost = 0;
+  let pages = 0;
+  let copies = 0;
+  let printRate = rateFor(o.color);
+
+  if (docs) {
+    for (const d of docs) {
+      const p = Math.max(0, d.pages || 0);
+      const c = Math.max(0, d.copies || 0);
+      printCost += p * c * rateFor(d.color);
+      stapleCost += d.staple ? STAPLE_FEE : 0;
+      pages += p;
+      copies += c;
+    }
+    printRate = docs.some(d => d.color === "color") ? RATE_COLOR : RATE_BW;
+  } else {
+    pages = o.pages;
+    copies = o.copies;
+    printCost = o.pages * o.copies * printRate;
+    stapleCost = o.finishing === "staple" ? STAPLE_FEE : 0;
+  }
+
+  const bindingCost = !docs && o.finishing === "bind" ? bindingCostFor(o.pages) : 0;
   const subtotal = printCost + bindingCost + stapleCost;
   const baseDelivery = loc ? loc.deliveryFee : 20;
-  const freeDelivery = subtotal >= 199; // free delivery threshold
+  const freeDelivery = subtotal >= 199;
   const deliveryFee = freeDelivery ? 0 : baseDelivery;
   const expressFee = o.urgent ? 15 : 0;
   const total = subtotal + deliveryFee + expressFee;
-  return { pages: o.pages, copies: o.copies, printRate, printCost, stapleCost, bindingCost, subtotal, deliveryFee, expressFee, total, freeDelivery };
+
+  return {
+    pages, copies, printRate, printCost, stapleCost, bindingCost,
+    subtotal, deliveryFee, expressFee, total, freeDelivery,
+    documentCount: docs ? docs.length : (o.fileName ? 1 : 0),
+  };
 }
 
 export function calcCost(o: PrintOptions, loc?: LocationInfo): number {
