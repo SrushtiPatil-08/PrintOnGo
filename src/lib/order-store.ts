@@ -109,14 +109,25 @@ export function haversineKm(a: { lat: number; lng: number }, b: { lat: number; l
   return 2 * R * Math.asin(Math.sqrt(h));
 }
 
-export function estimateFromDistance(distanceKm: number): { etaMin: number; deliveryFee: number; band: string } {
-  if (distanceKm <= 1) return { etaMin: 12, deliveryFee: 15, band: "Within 1 km · 10–15 mins" };
-  if (distanceKm <= 3) return { etaMin: 20, deliveryFee: 25, band: "1–3 km · 15–25 mins" };
-  if (distanceKm <= 5) return { etaMin: 32, deliveryFee: 35, band: "3–5 km · 25–40 mins" };
-  // beyond 5 km — dynamic
-  const eta = Math.round(40 + (distanceKm - 5) * 6);
-  const fee = Math.round(35 + (distanceKm - 5) * 7);
-  return { etaMin: eta, deliveryFee: fee, band: `${distanceKm.toFixed(1)} km · ~${eta} mins` };
+export type DistanceEstimate = {
+  etaMin: number;
+  deliveryFee: number;
+  band: string;
+  hyperLocal: boolean;
+  outOfBounds: boolean;
+};
+
+export function estimateFromDistance(distanceKm: number): DistanceEstimate {
+  if (distanceKm <= HYPERLOCAL_RADIUS_KM) {
+    return { etaMin: 10, deliveryFee: 10, band: "Hyper-local · under 10 mins", hyperLocal: true, outOfBounds: false };
+  }
+  if (distanceKm <= 2.5) {
+    return { etaMin: 18, deliveryFee: 20, band: `${distanceKm.toFixed(1)} km · ~15–20 mins`, hyperLocal: false, outOfBounds: false };
+  }
+  if (distanceKm <= MAX_DELIVERY_RADIUS_KM) {
+    return { etaMin: 28, deliveryFee: 30, band: `${distanceKm.toFixed(1)} km · ~20–30 mins`, hyperLocal: false, outOfBounds: false };
+  }
+  return { etaMin: 0, deliveryFee: 0, band: `Out of bounds (${distanceKm.toFixed(1)} km)`, hyperLocal: false, outOfBounds: true };
 }
 
 const KEY = "printongo:current";
