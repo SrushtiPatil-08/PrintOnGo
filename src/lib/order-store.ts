@@ -204,32 +204,65 @@ export function updateOrderStatus(id: string, status: OrderStatus) {
 }
 
 // ---- Auto page detection ----
-// Best-effort, fully client-side; works without extra deps.
-export async function detectPageCount(file: File): Promise<number | null> {
+// Robust, browser-native parsing via pdfjs-dist + jszip.
+export type PageDetectionResult = {
+  pages: number;
+  source: "pdf" | "docx-xml" | "pptx-xml" | "image" | "estimate";
+};
+
+async function parseOfficeCount(file: File, xmlPath: string, tag: "Pages" | "Slides"): Promise<number | null> {
+  try {
+    const JSZip = (await import("jszip")).default;
+    const zip = await JSZip.loadAsync(await file.arrayBuffer());
+    const entry = zip.file(xmlPath);
+    if (!entry) return null;
+    const xml = await entry.async("string");
+    const m = xml.match(new RegExp(`<${tag}>(\\d+)</${tag}>`));
+    if (m) {
+      const n = parseInt(m[1], 10);
+      if (n > 0) return n;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+export async function detectPageCount(file: File): Promise<PageDetectionResult | null> {
   const name = file.name.toLowerCase();
   try {
     if (name.endsWith(".pdf")) {
+      const pdfjs: any = await import("pdfjs-dist/build/pdf.mjs");
+      try {
+        const workerUrl = (await import("pdfjs-dist/build/pdf.worker.mjs?url")).default;
+        pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
+      } catch {
+        pdfjs.GlobalWorkerOptions.workerSrc = "";
+      }
       const buf = await file.arrayBuffer();
-      const txt = new TextDecoder("latin1").decode(new Uint8Array(buf));
-      const matches = txt.match(/\/Type\s*\/Page[^s]/g);
-      if (matches && matches.length > 0) return matches.length;
-      // fallback: count "/Count" entries
-      const c = txt.match(/\/Count\s+(\d+)/);
-      if (c) return parseInt(c[1]);
-      return null;
+      const doc = await pdfjs.getDocument({ data: buf, disableWorker: true }).promise;
+      return { pages: doc.numPages, source: "pdf" };
     }
     if (name.endsWith(".png") || name.endsWith(".jpg") || name.endsWith(".jpeg") || name.endsWith(".webp")) {
-      return 1;
+      return { pages: 1, source: "image" };
     }
     if (name.endsWith(".docx")) {
-      // rough heuristic: 1 page per 25KB (docs vary, user can adjust)
-      return Math.max(1, Math.round(file.size / 25000));
+      const n = await parseOfficeCount(file, "docProps/app.xml", "Pages");
+      if (n) return { pages: n, source: "docx-xml" };
+      return { pages: Math.max(1, Math.round(file.size / 25000)), source: "estimate" };
     }
-    if (name.endsWith(".pptx") || name.endsWith(".ppt")) {
-      return Math.max(1, Math.round(file.size / 60000));
+    if (name.endsWith(".pptx")) {
+      const n = await parseOfficeCount(file, "docProps/app.xml", "Slides");
+      if (n) return { pages: n, source: "pptx-xml" };
+      return { pages: Math.max(1, Math.round(file.size / 60000)), source: "estimate" };
+    }
+    if (name.endsWith(".ppt") || name.endsWith(".doc")) {
+      // legacy binary — no reliable client parser; conservative estimate
+      return { pages: Math.max(1, Math.round(file.size / 50000)), source: "estimate" };
     }
   } catch {
     return null;
   }
   return null;
 }
+
