@@ -232,7 +232,7 @@ export async function detectPageCount(file: File): Promise<PageDetectionResult |
   const name = file.name.toLowerCase();
   try {
     if (name.endsWith(".pdf")) {
-      const pdfjs: any = await import("pdfjs-dist/build/pdf.mjs");
+      const pdfjs: any = await import(/* @vite-ignore */ "pdfjs-dist/build/pdf.mjs" as any);
       try {
         const workerUrl = (await import("pdfjs-dist/build/pdf.worker.mjs?url")).default;
         pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
