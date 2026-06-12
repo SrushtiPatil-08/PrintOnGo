@@ -18,6 +18,8 @@ export type LocationInfo = {
   distanceKm: number; // distance to nearest print partner
   etaMin: number; // estimated delivery time in minutes
   deliveryFee: number;
+  hyperLocal?: boolean;
+  outOfBounds?: boolean;
 };
 
 export type DeliveryDetails = {
