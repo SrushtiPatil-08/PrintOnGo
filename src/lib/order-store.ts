@@ -93,8 +93,11 @@ export function calcCost(o: PrintOptions, loc?: LocationInfo): number {
 }
 
 // ---- Location / delivery estimation ----
-// Demo "nearest print partner" coordinates (central Bengaluru).
-export const PARTNER_COORDS = { lat: 12.9716, lng: 77.5946 };
+// Primary campus micro-hub: Vartak Polytechnic / Vartak College, Vasai West, Maharashtra
+export const PARTNER_COORDS = { lat: 19.3854, lng: 72.8322 };
+export const HUB_NAME = "Vartak Polytechnic Campus Hub";
+export const HYPERLOCAL_RADIUS_KM = 1.5; // 10-min Blinkit-style zone
+export const MAX_DELIVERY_RADIUS_KM = 4;  // hard out-of-bounds cap
 
 export function haversineKm(a: { lat: number; lng: number }, b: { lat: number; lng: number }) {
   const R = 6371;
