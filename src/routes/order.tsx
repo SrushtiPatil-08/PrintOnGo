@@ -329,7 +329,9 @@ function OrderPage() {
                 <span className="text-3xl font-bold text-primary">₹{breakdown.total}</span>
               </div>
               <p className="text-xs text-muted-foreground mt-2">B&W ₹3/pg · Color ₹10/pg · Stapling free · Free delivery above ₹199.</p>
-              <Button className="btn-hero w-full mt-5 h-11" onClick={onContinue}>Continue to delivery</Button>
+              <Button className="btn-hero w-full mt-5 h-11" onClick={onContinue} disabled={outOfBounds}>
+                {outOfBounds ? "Out of delivery zone" : "Continue to delivery"}
+              </Button>
             </div>
           </aside>
         </div>
