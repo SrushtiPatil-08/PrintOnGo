@@ -30,6 +30,8 @@ function OrderPage() {
   const [location, setLocation] = useState<LocationInfo | undefined>(undefined);
   const [locating, setLocating] = useState(false);
   const [manualAddress, setManualAddress] = useState("");
+  const [parsing, setParsing] = useState(false);
+  const [detectSource, setDetectSource] = useState<string | null>(null);
 
   useEffect(() => {
     const d = getDraft();
@@ -38,6 +40,7 @@ function OrderPage() {
   }, []);
 
   const breakdown = calcBreakdown(opts, location);
+  const outOfBounds = !!location?.outOfBounds;
   const update = <K extends keyof PrintOptions>(k: K, v: PrintOptions[K]) => setOpts(p => ({ ...p, [k]: v }));
 
   const onFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -45,14 +48,34 @@ function OrderPage() {
     if (!f) return;
     if (f.size > 20 * 1024 * 1024) { toast.error("File too large (max 20MB)"); return; }
     update("fileName", f.name);
-    toast.success(`Securely uploaded ${f.name}`);
-    const pages = await detectPageCount(f);
-    if (pages) {
-      setOpts(p => ({ ...p, fileName: f.name, pages, autoDetectedPages: true }));
-      toast.success(`Detected ${pages} pages automatically`);
+    setParsing(true);
+    setDetectSource(null);
+    const result = await detectPageCount(f);
+    setParsing(false);
+    if (result) {
+      setOpts(p => ({ ...p, fileName: f.name, pages: result.pages, autoDetectedPages: result.source !== "estimate" }));
+      setDetectSource(result.source);
+      const label = result.source === "pptx-xml" ? "slides" : "pages";
+      if (result.source === "estimate") {
+        toast.message(`~${result.pages} ${label} estimated — please verify`);
+      } else {
+        toast.success(`Detected ${result.pages} ${label} from ${f.name}`);
+      }
     } else {
       setOpts(p => ({ ...p, fileName: f.name, autoDetectedPages: false }));
+      toast.error("Couldn't auto-detect — please enter pages manually");
     }
+  };
+
+  const applyCoords = (lat: number, lng: number, label: string) => {
+    const distanceKm = haversineKm({ lat, lng }, PARTNER_COORDS);
+    const est = estimateFromDistance(distanceKm);
+    setLocation({
+      lat, lng, label,
+      distanceKm: Math.round(distanceKm * 10) / 10,
+      etaMin: est.etaMin, deliveryFee: est.deliveryFee,
+      hyperLocal: est.hyperLocal, outOfBounds: est.outOfBounds,
+    });
   };
 
   const detectLocation = () => {
@@ -60,17 +83,7 @@ function OrderPage() {
     setLocating(true);
     navigator.geolocation.getCurrentPosition(
       (pos) => {
-        const lat = pos.coords.latitude, lng = pos.coords.longitude;
-        const distanceKm = haversineKm({ lat, lng }, PARTNER_COORDS);
-        const est = estimateFromDistance(distanceKm);
-        const loc: LocationInfo = {
-          lat, lng,
-          label: `Detected · ${lat.toFixed(3)}, ${lng.toFixed(3)}`,
-          distanceKm: Math.round(distanceKm * 10) / 10,
-          etaMin: est.etaMin,
-          deliveryFee: est.deliveryFee,
-        };
-        setLocation(loc);
+        applyCoords(pos.coords.latitude, pos.coords.longitude, `Detected · ${pos.coords.latitude.toFixed(3)}, ${pos.coords.longitude.toFixed(3)}`);
         setLocating(false);
         toast.success("Location detected");
       },
@@ -82,16 +95,21 @@ function OrderPage() {
   const useManual = () => {
     const a = manualAddress.trim();
     if (a.length < 5) { toast.error("Enter a more specific address"); return; }
-    // Simulated estimate (no geocoding) — assume ~2.5 km
-    const distanceKm = 2.5;
+    // Heuristic: simulate proximity to Vartak campus based on keywords
+    const lc = a.toLowerCase();
+    let distanceKm = 2.2;
+    if (/(vartak|polytechnic|vasai|campus|hostel|college)/.test(lc)) distanceKm = 0.8;
+    else if (/(virar|nallasopara|naigaon|bhayander|mira road)/.test(lc)) distanceKm = 4.6;
     const est = estimateFromDistance(distanceKm);
-    setLocation({ label: a, distanceKm, etaMin: est.etaMin, deliveryFee: est.deliveryFee });
-    toast.success("Address saved");
+    setLocation({ label: a, distanceKm, etaMin: est.etaMin, deliveryFee: est.deliveryFee, hyperLocal: est.hyperLocal, outOfBounds: est.outOfBounds });
+    if (est.outOfBounds) toast.error("Address is outside our delivery zone");
+    else toast.success("Address saved");
   };
 
   const onContinue = () => {
     if (!opts.fileName) { toast.error("Please upload a document first"); return; }
     if (!location) { toast.error("Please set your delivery location"); return; }
+    if (location.outOfBounds) { toast.error("Delivery unavailable for this address"); return; }
     saveDraft({ options: opts, delivery: { ...(getDraft().delivery ?? { fullName: "", institute: "", department: "", phone: "", address: "", time: "Anytime" }), location, address: location.label } });
     navigate({ to: "/delivery" });
   };
