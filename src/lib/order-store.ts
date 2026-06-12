@@ -18,6 +18,8 @@ export type LocationInfo = {
   distanceKm: number; // distance to nearest print partner
   etaMin: number; // estimated delivery time in minutes
   deliveryFee: number;
+  hyperLocal?: boolean;
+  outOfBounds?: boolean;
 };
 
 export type DeliveryDetails = {
@@ -93,8 +95,11 @@ export function calcCost(o: PrintOptions, loc?: LocationInfo): number {
 }
 
 // ---- Location / delivery estimation ----
-// Demo "nearest print partner" coordinates (central Bengaluru).
-export const PARTNER_COORDS = { lat: 12.9716, lng: 77.5946 };
+// Primary campus micro-hub: Vartak Polytechnic / Vartak College, Vasai West, Maharashtra
+export const PARTNER_COORDS = { lat: 19.3854, lng: 72.8322 };
+export const HUB_NAME = "Vartak Polytechnic Campus Hub";
+export const HYPERLOCAL_RADIUS_KM = 1.5; // 10-min Blinkit-style zone
+export const MAX_DELIVERY_RADIUS_KM = 4;  // hard out-of-bounds cap
 
 export function haversineKm(a: { lat: number; lng: number }, b: { lat: number; lng: number }) {
   const R = 6371;
@@ -106,14 +111,25 @@ export function haversineKm(a: { lat: number; lng: number }, b: { lat: number; l
   return 2 * R * Math.asin(Math.sqrt(h));
 }
 
-export function estimateFromDistance(distanceKm: number): { etaMin: number; deliveryFee: number; band: string } {
-  if (distanceKm <= 1) return { etaMin: 12, deliveryFee: 15, band: "Within 1 km · 10–15 mins" };
-  if (distanceKm <= 3) return { etaMin: 20, deliveryFee: 25, band: "1–3 km · 15–25 mins" };
-  if (distanceKm <= 5) return { etaMin: 32, deliveryFee: 35, band: "3–5 km · 25–40 mins" };
-  // beyond 5 km — dynamic
-  const eta = Math.round(40 + (distanceKm - 5) * 6);
-  const fee = Math.round(35 + (distanceKm - 5) * 7);
-  return { etaMin: eta, deliveryFee: fee, band: `${distanceKm.toFixed(1)} km · ~${eta} mins` };
+export type DistanceEstimate = {
+  etaMin: number;
+  deliveryFee: number;
+  band: string;
+  hyperLocal: boolean;
+  outOfBounds: boolean;
+};
+
+export function estimateFromDistance(distanceKm: number): DistanceEstimate {
+  if (distanceKm <= HYPERLOCAL_RADIUS_KM) {
+    return { etaMin: 10, deliveryFee: 10, band: "Hyper-local · under 10 mins", hyperLocal: true, outOfBounds: false };
+  }
+  if (distanceKm <= 2.5) {
+    return { etaMin: 18, deliveryFee: 20, band: `${distanceKm.toFixed(1)} km · ~15–20 mins`, hyperLocal: false, outOfBounds: false };
+  }
+  if (distanceKm <= MAX_DELIVERY_RADIUS_KM) {
+    return { etaMin: 28, deliveryFee: 30, band: `${distanceKm.toFixed(1)} km · ~20–30 mins`, hyperLocal: false, outOfBounds: false };
+  }
+  return { etaMin: 0, deliveryFee: 0, band: `Out of bounds (${distanceKm.toFixed(1)} km)`, hyperLocal: false, outOfBounds: true };
 }
 
 const KEY = "printongo:current";
@@ -188,32 +204,65 @@ export function updateOrderStatus(id: string, status: OrderStatus) {
 }
 
 // ---- Auto page detection ----
-// Best-effort, fully client-side; works without extra deps.
-export async function detectPageCount(file: File): Promise<number | null> {
+// Robust, browser-native parsing via pdfjs-dist + jszip.
+export type PageDetectionResult = {
+  pages: number;
+  source: "pdf" | "docx-xml" | "pptx-xml" | "image" | "estimate";
+};
+
+async function parseOfficeCount(file: File, xmlPath: string, tag: "Pages" | "Slides"): Promise<number | null> {
+  try {
+    const JSZip = (await import("jszip")).default;
+    const zip = await JSZip.loadAsync(await file.arrayBuffer());
+    const entry = zip.file(xmlPath);
+    if (!entry) return null;
+    const xml = await entry.async("string");
+    const m = xml.match(new RegExp(`<${tag}>(\\d+)</${tag}>`));
+    if (m) {
+      const n = parseInt(m[1], 10);
+      if (n > 0) return n;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+export async function detectPageCount(file: File): Promise<PageDetectionResult | null> {
   const name = file.name.toLowerCase();
   try {
     if (name.endsWith(".pdf")) {
+      const pdfjs: any = await import(/* @vite-ignore */ "pdfjs-dist/build/pdf.mjs" as any);
+      try {
+        const workerUrl = (await import("pdfjs-dist/build/pdf.worker.mjs?url")).default;
+        pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
+      } catch {
+        pdfjs.GlobalWorkerOptions.workerSrc = "";
+      }
       const buf = await file.arrayBuffer();
-      const txt = new TextDecoder("latin1").decode(new Uint8Array(buf));
-      const matches = txt.match(/\/Type\s*\/Page[^s]/g);
-      if (matches && matches.length > 0) return matches.length;
-      // fallback: count "/Count" entries
-      const c = txt.match(/\/Count\s+(\d+)/);
-      if (c) return parseInt(c[1]);
-      return null;
+      const doc = await pdfjs.getDocument({ data: buf, disableWorker: true }).promise;
+      return { pages: doc.numPages, source: "pdf" };
     }
     if (name.endsWith(".png") || name.endsWith(".jpg") || name.endsWith(".jpeg") || name.endsWith(".webp")) {
-      return 1;
+      return { pages: 1, source: "image" };
     }
     if (name.endsWith(".docx")) {
-      // rough heuristic: 1 page per 25KB (docs vary, user can adjust)
-      return Math.max(1, Math.round(file.size / 25000));
+      const n = await parseOfficeCount(file, "docProps/app.xml", "Pages");
+      if (n) return { pages: n, source: "docx-xml" };
+      return { pages: Math.max(1, Math.round(file.size / 25000)), source: "estimate" };
     }
-    if (name.endsWith(".pptx") || name.endsWith(".ppt")) {
-      return Math.max(1, Math.round(file.size / 60000));
+    if (name.endsWith(".pptx")) {
+      const n = await parseOfficeCount(file, "docProps/app.xml", "Slides");
+      if (n) return { pages: n, source: "pptx-xml" };
+      return { pages: Math.max(1, Math.round(file.size / 60000)), source: "estimate" };
+    }
+    if (name.endsWith(".ppt") || name.endsWith(".doc")) {
+      // legacy binary — no reliable client parser; conservative estimate
+      return { pages: Math.max(1, Math.round(file.size / 50000)), source: "estimate" };
     }
   } catch {
     return null;
   }
   return null;
 }
+

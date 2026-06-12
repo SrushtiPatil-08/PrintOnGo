@@ -12,6 +12,7 @@ import {
 import {
   calcBreakdown, getDraft, saveDraft, type PrintOptions, type LocationInfo,
   detectPageCount, haversineKm, estimateFromDistance, PARTNER_COORDS, bindingCostFor,
+  HUB_NAME, MAX_DELIVERY_RADIUS_KM, HYPERLOCAL_RADIUS_KM,
 } from "@/lib/order-store";
 import { toast } from "sonner";
 
@@ -29,6 +30,8 @@ function OrderPage() {
   const [location, setLocation] = useState<LocationInfo | undefined>(undefined);
   const [locating, setLocating] = useState(false);
   const [manualAddress, setManualAddress] = useState("");
+  const [parsing, setParsing] = useState(false);
+  const [detectSource, setDetectSource] = useState<string | null>(null);
 
   useEffect(() => {
     const d = getDraft();
@@ -37,6 +40,7 @@ function OrderPage() {
   }, []);
 
   const breakdown = calcBreakdown(opts, location);
+  const outOfBounds = !!location?.outOfBounds;
   const update = <K extends keyof PrintOptions>(k: K, v: PrintOptions[K]) => setOpts(p => ({ ...p, [k]: v }));
 
   const onFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -44,14 +48,34 @@ function OrderPage() {
     if (!f) return;
     if (f.size > 20 * 1024 * 1024) { toast.error("File too large (max 20MB)"); return; }
     update("fileName", f.name);
-    toast.success(`Securely uploaded ${f.name}`);
-    const pages = await detectPageCount(f);
-    if (pages) {
-      setOpts(p => ({ ...p, fileName: f.name, pages, autoDetectedPages: true }));
-      toast.success(`Detected ${pages} pages automatically`);
+    setParsing(true);
+    setDetectSource(null);
+    const result = await detectPageCount(f);
+    setParsing(false);
+    if (result) {
+      setOpts(p => ({ ...p, fileName: f.name, pages: result.pages, autoDetectedPages: result.source !== "estimate" }));
+      setDetectSource(result.source);
+      const label = result.source === "pptx-xml" ? "slides" : "pages";
+      if (result.source === "estimate") {
+        toast.message(`~${result.pages} ${label} estimated — please verify`);
+      } else {
+        toast.success(`Detected ${result.pages} ${label} from ${f.name}`);
+      }
     } else {
       setOpts(p => ({ ...p, fileName: f.name, autoDetectedPages: false }));
+      toast.error("Couldn't auto-detect — please enter pages manually");
     }
+  };
+
+  const applyCoords = (lat: number, lng: number, label: string) => {
+    const distanceKm = haversineKm({ lat, lng }, PARTNER_COORDS);
+    const est = estimateFromDistance(distanceKm);
+    setLocation({
+      lat, lng, label,
+      distanceKm: Math.round(distanceKm * 10) / 10,
+      etaMin: est.etaMin, deliveryFee: est.deliveryFee,
+      hyperLocal: est.hyperLocal, outOfBounds: est.outOfBounds,
+    });
   };
 
   const detectLocation = () => {
@@ -59,17 +83,7 @@ function OrderPage() {
     setLocating(true);
     navigator.geolocation.getCurrentPosition(
       (pos) => {
-        const lat = pos.coords.latitude, lng = pos.coords.longitude;
-        const distanceKm = haversineKm({ lat, lng }, PARTNER_COORDS);
-        const est = estimateFromDistance(distanceKm);
-        const loc: LocationInfo = {
-          lat, lng,
-          label: `Detected · ${lat.toFixed(3)}, ${lng.toFixed(3)}`,
-          distanceKm: Math.round(distanceKm * 10) / 10,
-          etaMin: est.etaMin,
-          deliveryFee: est.deliveryFee,
-        };
-        setLocation(loc);
+        applyCoords(pos.coords.latitude, pos.coords.longitude, `Detected · ${pos.coords.latitude.toFixed(3)}, ${pos.coords.longitude.toFixed(3)}`);
         setLocating(false);
         toast.success("Location detected");
       },
@@ -81,16 +95,21 @@ function OrderPage() {
   const useManual = () => {
     const a = manualAddress.trim();
     if (a.length < 5) { toast.error("Enter a more specific address"); return; }
-    // Simulated estimate (no geocoding) — assume ~2.5 km
-    const distanceKm = 2.5;
+    // Heuristic: simulate proximity to Vartak campus based on keywords
+    const lc = a.toLowerCase();
+    let distanceKm = 2.2;
+    if (/(vartak|polytechnic|vasai|campus|hostel|college)/.test(lc)) distanceKm = 0.8;
+    else if (/(virar|nallasopara|naigaon|bhayander|mira road)/.test(lc)) distanceKm = 4.6;
     const est = estimateFromDistance(distanceKm);
-    setLocation({ label: a, distanceKm, etaMin: est.etaMin, deliveryFee: est.deliveryFee });
-    toast.success("Address saved");
+    setLocation({ label: a, distanceKm, etaMin: est.etaMin, deliveryFee: est.deliveryFee, hyperLocal: est.hyperLocal, outOfBounds: est.outOfBounds });
+    if (est.outOfBounds) toast.error("Address is outside our delivery zone");
+    else toast.success("Address saved");
   };
 
   const onContinue = () => {
     if (!opts.fileName) { toast.error("Please upload a document first"); return; }
     if (!location) { toast.error("Please set your delivery location"); return; }
+    if (location.outOfBounds) { toast.error("Delivery unavailable for this address"); return; }
     saveDraft({ options: opts, delivery: { ...(getDraft().delivery ?? { fullName: "", institute: "", department: "", phone: "", address: "", time: "Anytime" }), location, address: location.label } });
     navigate({ to: "/delivery" });
   };
@@ -113,16 +132,23 @@ function OrderPage() {
                 <div className="text-xs text-muted-foreground mt-1">PDF, DOCX, PPT, PNG, JPG — up to 20MB</div>
                 <input id="file" type="file" accept=".pdf,.doc,.docx,.ppt,.pptx,.png,.jpg,.jpeg" className="hidden" onChange={onFile} />
               </label>
-              {opts.fileName && (
-                <div className="mt-3 flex items-center justify-between text-sm">
+              {parsing && (
+                <div className="mt-3 flex items-center gap-2 text-sm text-muted-foreground">
+                  <Loader2 className="w-4 h-4 animate-spin text-primary" /> Analyzing document pages…
+                </div>
+              )}
+              {!parsing && opts.fileName && (
+                <div className="mt-3 flex items-center justify-between text-sm flex-wrap gap-2">
                   <div className="flex items-center gap-2 text-muted-foreground">
                     <FileText className="w-4 h-4" /> {opts.fileName}
                   </div>
-                  {opts.autoDetectedPages && (
+                  {opts.autoDetectedPages ? (
                     <span className="inline-flex items-center gap-1 text-xs text-success font-semibold">
-                      <BadgeCheck className="w-3.5 h-3.5" /> {opts.pages} pages auto-detected
+                      <BadgeCheck className="w-3.5 h-3.5" /> ✅ {opts.pages} {detectSource === "pptx-xml" ? "slides" : "pages"} detected
                     </span>
-                  )}
+                  ) : detectSource === "estimate" ? (
+                    <span className="text-xs text-muted-foreground">~{opts.pages} pages estimated — verify below</span>
+                  ) : null}
                 </div>
               )}
               <div className="mt-4 flex flex-wrap gap-2 text-[11px]">
@@ -221,7 +247,7 @@ function OrderPage() {
                 </span>
               </div>
               <p className="text-xs text-muted-foreground mb-4">
-                Estimated delivery time and fees are calculated dynamically based on your distance from the nearest print partner.
+                Hyper-local printing from <span className="font-medium text-foreground">{HUB_NAME}</span>. Orders within {HYPERLOCAL_RADIUS_KM} km arrive in under 10 minutes. Max delivery radius: {MAX_DELIVERY_RADIUS_KM} km.
               </p>
               <div className="flex flex-wrap gap-2 mb-3">
                 <Button type="button" variant="outline" onClick={detectLocation} disabled={locating} className="h-10">
@@ -234,11 +260,16 @@ function OrderPage() {
                 <Button type="button" onClick={useManual} variant="secondary">Set</Button>
               </div>
 
-              {location && (
+              {location && !location.outOfBounds && (
                 <div className="mt-4 grid sm:grid-cols-3 gap-3">
-                  <LocStat icon={MapPin} label="Distance from print partner" value={`${location.distanceKm} km`} />
-                  <LocStat icon={Clock} label="Estimated delivery time" value={`~ ${location.etaMin} mins`} />
+                  <LocStat icon={MapPin} label={`Distance from ${HUB_NAME}`} value={`${location.distanceKm} km`} />
+                  <LocStat icon={Clock} label="Estimated delivery time" value={location.hyperLocal ? "Under 10 mins" : `~ ${location.etaMin} mins`} success={location.hyperLocal} />
                   <LocStat icon={BadgeCheck} label="Delivery charges" value={breakdown.freeDelivery ? "FREE" : `₹${location.deliveryFee}`} success={breakdown.freeDelivery} />
+                  {location.hyperLocal && (
+                    <div className="sm:col-span-3 rounded-lg border border-success/30 bg-success/5 text-success text-xs font-semibold px-3 py-2 inline-flex items-center gap-2">
+                      <BadgeCheck className="w-4 h-4" /> Hyper-local zone · delivered in under 10 mins
+                    </div>
+                  )}
                   <div className="sm:col-span-3 rounded-lg overflow-hidden border border-border bg-secondary/30 h-36 flex items-center justify-center text-xs text-muted-foreground">
                     {location.lat && location.lng ? (
                       <iframe
@@ -252,6 +283,13 @@ function OrderPage() {
                   </div>
                 </div>
               )}
+
+              {outOfBounds && (
+                <div className="mt-4 rounded-lg border border-destructive/30 bg-destructive/5 text-destructive text-sm px-4 py-3">
+                  Sorry! PrintOnGo is currently only operating within a 10–20 min hyper-local radius of university campuses like Vartak Polytechnic.
+                </div>
+              )}
+
               <p className="mt-3 text-[11px] text-muted-foreground">
                 *Delivery times vary based on customer location, traffic, print partner availability & order volume.
               </p>
@@ -291,7 +329,9 @@ function OrderPage() {
                 <span className="text-3xl font-bold text-primary">₹{breakdown.total}</span>
               </div>
               <p className="text-xs text-muted-foreground mt-2">B&W ₹3/pg · Color ₹10/pg · Stapling free · Free delivery above ₹199.</p>
-              <Button className="btn-hero w-full mt-5 h-11" onClick={onContinue}>Continue to delivery</Button>
+              <Button className="btn-hero w-full mt-5 h-11" onClick={onContinue} disabled={outOfBounds}>
+                {outOfBounds ? "Out of delivery zone" : "Continue to delivery"}
+              </Button>
             </div>
           </aside>
         </div>
