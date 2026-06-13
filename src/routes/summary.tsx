@@ -2,7 +2,7 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { SiteLayout } from "@/components/site-layout";
 import { Button } from "@/components/ui/button";
 import { useEffect, useState } from "react";
-import { calcBreakdown, calcCost, clearDraft, getDraft, placeOrder, type DeliveryDetails, type PrintOptions } from "@/lib/order-store";
+import { calcBreakdown, calcCost, clearDraft, getDraft, placeOrder, spiralBindingCost, type DeliveryDetails, type PrintOptions } from "@/lib/order-store";
 import { Stepper } from "./order";
 import { FileText, MapPin, Settings2, CheckCircle2, BadgeCheck, Clock, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
@@ -55,9 +55,9 @@ function SummaryPage() {
                     <li key={d.id} className="flex justify-between gap-2">
                       <span className="truncate">
                         {i + 1}. <span className="font-medium">{d.fileName}</span>
-                        <span className="text-muted-foreground"> — {d.pages} pg × {d.copies} cp · {d.color === "bw" ? "B&W" : "Color"}{d.staple ? " · Stapled" : ""}</span>
+                        <span className="text-muted-foreground"> — {d.pages} pg × {d.copies} cp · {d.color === "bw" ? "B&W" : "Color"}{d.staple ? " · Stapled" : ""}{d.spiralBinding ? ` · ${d.spiralType === "metal" ? "Metal Wire-O" : "Plastic Spiral"}` : ""}</span>
                       </span>
-                      <span className="font-medium shrink-0">₹{d.pages * d.copies * (d.color === "color" ? 10 : 3)}</span>
+                      <span className="font-medium shrink-0">₹{d.pages * d.copies * (d.color === "color" ? 10 : 3) + (d.spiralBinding ? spiralBindingCost(d.pages, d.spiralType) : 0)}</span>
                     </li>
                   ))}
                 </ul>
@@ -78,6 +78,7 @@ function SummaryPage() {
                 {!options.documents && options.finishing === "staple" && <li>Stapling — <span className="text-success font-medium">FREE</span></li>}
                 {!options.documents && options.finishing === "bind" && <li>Binding — ₹{breakdown.bindingCost}</li>}
                 {options.documents?.some(d => d.staple) && <li>Stapling on selected docs — <span className="text-success font-medium">FREE</span></li>}
+                {options.documents?.some(d => d.spiralBinding) && <li>Spiral binding — ₹{breakdown.spiralCost}</li>}
                 {options.urgent && <li>Express delivery</li>}
               </ul>
             </Card>
@@ -114,6 +115,7 @@ function SummaryPage() {
                 <Row k="Copies" v={String(options.copies)} />
                 <Row k="Print type" v={options.color === "bw" ? `B&W ₹3` : `Color ₹10`} />
                 <Row k="Print cost" v={`₹${breakdown.printCost}`} />
+                {breakdown.spiralCost > 0 && <Row k="Spiral binding" v={`₹${breakdown.spiralCost}`} />}
                 <Row k="Stapling" v={options.finishing === "staple" ? <span className="text-success font-semibold">FREE</span> : "—"} />
                 <Row k="Binding" v={options.finishing === "bind" ? `₹${breakdown.bindingCost}` : "—"} />
                 <Row k="Delivery" v={breakdown.freeDelivery ? <span className="text-success font-semibold">FREE</span> : `₹${breakdown.deliveryFee}`} />

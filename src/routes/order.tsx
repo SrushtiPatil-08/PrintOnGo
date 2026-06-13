@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useEffect, useMemo, useState } from "react";
 import {
   Upload, FileText, BadgeCheck, ShieldCheck, Lock, MapPin, Loader2, Navigation, Clock, Plus, Trash2,
@@ -11,7 +12,7 @@ import {
 import {
   calcBreakdown, getDraft, saveDraft, type PrintOptions, type LocationInfo, type DocItem,
   detectPageCount, haversineKm, estimateFromDistance, PARTNER_COORDS,
-  HUB_NAME, MAX_DELIVERY_RADIUS_KM, HYPERLOCAL_RADIUS_KM, rateFor,
+  HUB_NAME, MAX_DELIVERY_RADIUS_KM, HYPERLOCAL_RADIUS_KM, rateFor, spiralBindingCost,
 } from "@/lib/order-store";
 import { toast } from "sonner";
 
@@ -70,6 +71,7 @@ function OrderPage() {
       if (f.size > MAX_SIZE) { toast.error(`${f.name} is over 20MB`); continue; }
       accepted.push({
         id: newId(), fileName: f.name, pages: 0, copies: 1, color: "bw", staple: false,
+        spiralBinding: false, spiralType: "plastic",
       });
     }
     if (accepted.length === 0) return;
@@ -200,7 +202,9 @@ function OrderPage() {
 
               {docs.map((d, idx) => {
                 const parsing = !!parsingIds[d.id];
-                const lineCost = d.pages * d.copies * rateFor(d.color);
+                const printLineCost = d.pages * d.copies * rateFor(d.color);
+                const spiralCost = d.spiralBinding ? spiralBindingCost(d.pages, d.spiralType) : 0;
+                const lineCost = printLineCost + spiralCost;
                 return (
                   <div key={d.id} className="card-elevated p-5">
                     <div className="flex items-start justify-between gap-3 mb-4">
@@ -240,8 +244,8 @@ function OrderPage() {
                       </div>
                     </div>
 
-                    <div className="grid sm:grid-cols-2 gap-4 mt-4">
-                      <div>
+                    <div className="mt-4">
+                      <div className="max-w-sm">
                         <Label className="mb-2 block text-sm">Color mode</Label>
                         <div className="flex gap-2">
                           {[{ k: "bw", l: "B&W ₹3/pg" }, { k: "color", l: "Color ₹10/pg" }].map(o => (
@@ -252,20 +256,48 @@ function OrderPage() {
                           ))}
                         </div>
                       </div>
-                      <div>
-                        <Label className="mb-2 block text-sm">Finishing</Label>
-                        <div className="flex items-center justify-between border rounded-lg px-3 py-2.5">
+                    </div>
+
+                    <div className="mt-4">
+                      <Label className="mb-2 block text-sm">Finishing</Label>
+                      <div className="grid sm:grid-cols-2 gap-3">
+                        <div className="flex items-center justify-between border rounded-lg px-3 py-2.5 min-h-16">
                           <div>
                             <div className="text-sm font-medium">Staple</div>
                             <div className="text-[11px] text-muted-foreground">Free for students</div>
                           </div>
                           <Switch checked={d.staple} onCheckedChange={(v) => updateDoc(d.id, { staple: v })} />
                         </div>
+                        <div className="border rounded-lg px-3 py-2.5 min-h-16">
+                          <div className="flex items-center justify-between gap-3">
+                            <div>
+                              <div className="text-sm font-medium">Spiral Binding</div>
+                              <div className="text-[11px] text-muted-foreground">Starts at ₹30</div>
+                            </div>
+                            <Switch
+                              checked={!!d.spiralBinding}
+                              onCheckedChange={(v) => updateDoc(d.id, { spiralBinding: v, spiralType: d.spiralType ?? "plastic" })}
+                            />
+                          </div>
+                          {d.spiralBinding && (
+                            <Select value={d.spiralType ?? "plastic"} onValueChange={(v) => updateDoc(d.id, { spiralType: v as "plastic" | "metal" })}>
+                              <SelectTrigger className="mt-3" aria-label="Spiral binding type">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="plastic">Plastic Spiral</SelectItem>
+                                <SelectItem value="metal">Metal Wire-O Binding</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          )}
+                        </div>
                       </div>
                     </div>
 
                     <div className="mt-4 pt-3 border-t border-border flex items-center justify-between text-sm">
-                      <span className="text-muted-foreground">{d.pages} pg × {d.copies} cp × ₹{rateFor(d.color)}</span>
+                      <span className="text-muted-foreground">
+                        ({d.pages} pg × {d.copies} cp × ₹{rateFor(d.color)}){spiralCost > 0 ? ` + ₹${spiralCost} spiral` : ""}
+                      </span>
                       <span className="font-semibold">₹{lineCost}</span>
                     </div>
                   </div>
@@ -357,9 +389,9 @@ function OrderPage() {
                       <div key={d.id} className="flex justify-between gap-2">
                         <span className="text-muted-foreground truncate">
                           {i + 1}. {d.fileName.length > 18 ? d.fileName.slice(0, 16) + "…" : d.fileName}
-                          <span className="ml-1 text-[11px]">({d.color === "bw" ? "B&W" : "Color"}{d.staple ? " · Stp" : ""})</span>
+                          <span className="ml-1 text-[11px]">({d.color === "bw" ? "B&W" : "Color"}{d.staple ? " · Stp" : ""}{d.spiralBinding ? " · Spiral" : ""})</span>
                         </span>
-                        <span className="font-medium shrink-0">₹{d.pages * d.copies * rateFor(d.color)}</span>
+                        <span className="font-medium shrink-0">₹{d.pages * d.copies * rateFor(d.color) + (d.spiralBinding ? spiralBindingCost(d.pages, d.spiralType) : 0)}</span>
                       </div>
                     ))}
                   </div>
@@ -368,6 +400,7 @@ function OrderPage() {
                     <Row k="Total pages" v={String(breakdown.pages)} />
                     <Row k="Total copies" v={String(breakdown.copies)} />
                     <Row k="Print cost" v={`₹${breakdown.printCost}`} />
+                    {breakdown.spiralCost > 0 && <Row k="Spiral binding" v={`₹${breakdown.spiralCost}`} />}
                     <Row
                       k={location ? `Delivery (${location.distanceKm} km)` : "Delivery"}
                       v={breakdown.freeDelivery ? <span className="text-success font-semibold">FREE</span> : `₹${breakdown.deliveryFee}`}
