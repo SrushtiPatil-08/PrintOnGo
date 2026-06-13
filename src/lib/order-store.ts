@@ -6,6 +6,8 @@ export type DocItem = {
   copies: number;
   color: "bw" | "color";
   staple: boolean;
+  spiralBinding?: boolean;
+  spiralType?: "plastic" | "metal";
   autoDetectedPages?: boolean;
   detectSource?: string;
 };
@@ -68,6 +70,13 @@ export const RATE_BW = 3;     // ₹ per page
 export const RATE_COLOR = 10; // ₹ per page
 export const STAPLE_FEE = 0;  // stapling is free for students
 
+export function spiralBindingCost(pages: number, type: "plastic" | "metal" = "plastic"): number {
+  if (pages <= 0) return 0;
+  if (pages <= 50) return type === "metal" ? 45 : 30;
+  if (pages <= 150) return type === "metal" ? 65 : 50;
+  return type === "metal" ? 95 : 80;
+}
+
 export function rateFor(color: "bw" | "color") {
   return color === "color" ? RATE_COLOR : RATE_BW;
 }
@@ -85,6 +94,7 @@ export type CostBreakdown = {
   printRate: number;
   printCost: number;
   stapleCost: number;
+  spiralCost: number;
   bindingCost: number;
   subtotal: number;
   deliveryFee: number;
@@ -99,6 +109,7 @@ export function calcBreakdown(o: PrintOptions, loc?: LocationInfo): CostBreakdow
 
   let printCost = 0;
   let stapleCost = 0;
+  let spiralCost = 0;
   let pages = 0;
   let copies = 0;
   let printRate = rateFor(o.color);
@@ -109,6 +120,7 @@ export function calcBreakdown(o: PrintOptions, loc?: LocationInfo): CostBreakdow
       const c = Math.max(0, d.copies || 0);
       printCost += p * c * rateFor(d.color);
       stapleCost += d.staple ? STAPLE_FEE : 0;
+      spiralCost += d.spiralBinding ? spiralBindingCost(p, d.spiralType) : 0;
       pages += p;
       copies += c;
     }
@@ -121,7 +133,7 @@ export function calcBreakdown(o: PrintOptions, loc?: LocationInfo): CostBreakdow
   }
 
   const bindingCost = !docs && o.finishing === "bind" ? bindingCostFor(o.pages) : 0;
-  const subtotal = printCost + bindingCost + stapleCost;
+  const subtotal = printCost + bindingCost + stapleCost + spiralCost;
   const baseDelivery = loc ? loc.deliveryFee : 20;
   const freeDelivery = subtotal >= 199;
   const deliveryFee = freeDelivery ? 0 : baseDelivery;
@@ -129,7 +141,7 @@ export function calcBreakdown(o: PrintOptions, loc?: LocationInfo): CostBreakdow
   const total = subtotal + deliveryFee + expressFee;
 
   return {
-    pages, copies, printRate, printCost, stapleCost, bindingCost,
+    pages, copies, printRate, printCost, stapleCost, spiralCost, bindingCost,
     subtotal, deliveryFee, expressFee, total, freeDelivery,
     documentCount: docs ? docs.length : (o.fileName ? 1 : 0),
   };
